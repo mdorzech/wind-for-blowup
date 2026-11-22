@@ -1,0 +1,93 @@
+{
+  "checked_at": "2026-11-22T23:40:40.095019+00:00",
+  "level": "hold",
+  "headline": "Inflatables held off for wind",
+  "detail": "Peak gust 27 mph, limit 20 mph.",
+  "hold": true,
+  "hold_since": "2026-11-22T23:40:40.095019+00:00",
+  "last_action": "Switched inflatables off for wind",
+  "last_action_at": "2026-11-22T23:40:40.095019+00:00",
+  "threshold_mph": 20.0,
+  "resume_below_mph": 17.0,
+  "lookahead_hours": 3,
+  "lead_minutes": 30,
+  "high_wind_at": null,
+  "switch_off_at": null,
+  "problems": [],
+  "dry_run": false,
+  "current_speed_mph": 6.9,
+  "current_gust_mph": 17.0,
+  "peak_gust_mph": 26.6,
+  "peak_time": "2026-11-23T02:30:00+00:00",
+  "forecast": [
+    {
+      "time": "2026-11-22T23:30:00+00:00",
+      "speed_mph": 6.9,
+      "gust_mph": 17.0
+    },
+    {
+      "time": "2026-11-22T23:45:00+00:00",
+      "speed_mph": 7.4,
+      "gust_mph": 18.8
+    },
+    {
+      "time": "2026-11-23T00:00:00+00:00",
+      "speed_mph": 9.0,
+      "gust_mph": 23.3
+    },
+    {
+      "time": "2026-11-23T00:15:00+00:00",
+      "speed_mph": 9.9,
+      "gust_mph": 26.4
+    },
+    {
+      "time": "2026-11-23T00:30:00+00:00",
+      "speed_mph": 10.3,
+      "gust_mph": 26.2
+    },
+    {
+      "time": "2026-11-23T00:45:00+00:00",
+      "speed_mph": 9.8,
+      "gust_mph": 24.6
+    },
+    {
+      "time": "2026-11-23T01:00:00+00:00",
+      "speed_mph": 9.8,
+      "gust_mph": 24.6
+    },
+    {
+      "time": "2026-11-23T01:15:00+00:00",
+      "speed_mph": 10.5,
+      "gust_mph": 24.8
+    },
+    {
+      "time": "2026-11-23T01:30:00+00:00",
+      "speed_mph": 11.4,
+      "gust_mph": 25.7
+    },
+    {
+      "time": "2026-11-23T01:45:00+00:00",
+      "speed_mph": 11.6,
+      "gust_mph": 24.8
+    },
+    {
+      "time": "2026-11-23T02:00:00+00:00",
+      "speed_mph": 11.2,
+      "gust_mph": 23.7
+    },
+    {
+      "time": "2026-11-23T02:15:00+00:00",
+      "speed_mph": 12.4,
+      "gust_mph": 25.7
+    },
+    {
+      "time": "2026-11-23T02:30:00+00:00",
+      "speed_mph": 13.1,
+      "gust_mph": 26.6
+    }
+  ],
+  "plugs": [
+    false
+  ],
+  "plug_on": false
+}
