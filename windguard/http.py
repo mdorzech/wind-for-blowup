@@ -25,7 +25,7 @@ def request_json(
     headers: dict[str, str] | None = None,
     body: Any = None,
     timeout: float = 15.0,
-    attempts: int = 3,
+    attempts: int = 4,
     sleep: Callable[[float], None] = time.sleep,
     opener: Callable[..., Any] = urllib.request.urlopen,
 ) -> Any:
@@ -49,6 +49,7 @@ def request_json(
     last_error = "no attempts made"
     for attempt in range(1, attempts + 1):
         request = urllib.request.Request(url, data=data, headers=all_headers, method=method)
+        wait = 2.0 * attempt
         try:
             with opener(request, timeout=timeout) as response:
                 raw = response.read()
@@ -56,6 +57,9 @@ def request_json(
             last_error = f"HTTP {exc.code}"
             if exc.code not in RETRY_STATUS:
                 raise HttpError(f"{host} answered {last_error}") from None
+            if exc.code == 429:
+                # Rate limited (shared cloud machines hit this): back off much longer.
+                wait = _retry_after(exc, default=15.0 * attempt)
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last_error = type(exc).__name__
         else:
@@ -65,5 +69,14 @@ def request_json(
                 raise HttpError(f"{host} returned a response that is not JSON") from None
         log.warning("%s %s failed (%s), attempt %d of %d", method, host, last_error, attempt, attempts)
         if attempt < attempts:
-            sleep(2.0 * attempt)
+            sleep(wait)
     raise HttpError(f"{host} unreachable after {attempts} attempts ({last_error})")
+
+
+def _retry_after(exc: urllib.error.HTTPError, default: float) -> float:
+    """Seconds to wait from a Retry-After header, capped at 60; default when absent or unreadable."""
+    try:
+        value = float(exc.headers.get("Retry-After", "")) if exc.headers else default
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, 1.0), 60.0)

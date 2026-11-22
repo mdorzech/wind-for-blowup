@@ -202,8 +202,8 @@ class FakeResponse:
         return False
 
 
-def http_error(code):
-    return urllib.error.HTTPError("https://x.example/", code, "err", None, None)
+def http_error(code, headers=None):
+    return urllib.error.HTTPError("https://x.example/", code, "err", headers, None)
 
 
 class HttpTests(unittest.TestCase):
@@ -240,10 +240,18 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(len(requests), 3)
         self.assertEqual(sleeps, [2.0, 4.0])
 
-    def test_gives_up_after_three_attempts(self):
-        _, error, requests, _ = self.call([http_error(500), TimeoutError(), http_error(429)])
+    def test_gives_up_after_four_attempts(self):
+        _, error, requests, _ = self.call([http_error(500), TimeoutError(), http_error(502), http_error(503)])
         self.assertIsNotNone(error)
-        self.assertEqual(len(requests), 3)
+        self.assertEqual(len(requests), 4)
+
+    def test_rate_limit_backs_off_longer(self):
+        import email.message
+        with_header = email.message.Message()
+        with_header["Retry-After"] = "7"
+        result, _, _, sleeps = self.call([http_error(429), http_error(429, with_header), http_error(429), b"{}"])
+        self.assertEqual(result, {})
+        self.assertEqual(sleeps, [15.0, 7.0, 45.0])
 
     def test_client_errors_are_not_retried(self):
         _, error, requests, _ = self.call([http_error(401)])
