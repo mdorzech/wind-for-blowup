@@ -48,7 +48,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           [ -f public/state.json ] || exit 0
-          cp site/index.html public/index.html
           cd public
           git init --quiet --initial-branch=status
           git config user.name "wind-check"
