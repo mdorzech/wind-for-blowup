@@ -1,0 +1,20 @@
+{
+  "name": "wind-watch",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Turns inflatable decorations off (Govee smart plug) before high wind arrives.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "devices": "node scripts/cli.mjs devices",
+    "test-notify": "node scripts/cli.mjs test-notify",
+    "dry-run": "node scripts/cli.mjs dry-run",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.166.0"
+  },
+  "engines": {
+    "node": ">=20.12"
+  }
+}

@@ -2,80 +2,57 @@
 
 Turns your inflatable decorations off before high wind arrives.
 
-Every 5 minutes a free GitHub Actions job reads the 15-minute wind forecast for
-your home (Open-Meteo). When gusts are forecast to reach 20 mph, it switches your
-Govee smart plug off 30 minutes beforehand (or straight away if it is already that
-windy) and sends a push notification to your phone.
-When the wind has passed you get a second notification, and **you** decide whether
-to turn the inflatables back on in the Govee app. This program never turns
-anything on.
+A free Cloudflare Worker checks the 15-minute wind forecast for your home
+(Open-Meteo) every 5 minutes. When gusts are forecast to reach 20 mph, it switches
+your Govee smart plug off 30 minutes beforehand (or straight away if it is already
+that windy) and sends a push notification to your phone. When the wind has passed
+you get a second notification, and **you** decide whether to turn the inflatables
+back on in the Govee app. This program never turns anything on.
 
-Nothing has to stay running at home.
+The same Worker serves a dashboard: current wind, the forecast being watched,
+whether the plug is on, a 7-day history and an activity log. Its **Refresh** button
+runs a new check on the spot (at most once a minute).
 
 ## What you need
 
-- A GitHub account (free).
-- A Govee API key: Govee Home app > Profile > Settings > **Apply for API Key**
-  (it arrives by email).
+- A free [Cloudflare](https://dash.cloudflare.com/sign-up) account.
+- A Govee API key: Govee Home app > Profile > Settings > **Apply for API Key**.
 - The [ntfy](https://ntfy.sh) app on your phone (free, no account).
-- Python 3.11 or newer on your PC, only for the one-time setup commands below.
+- [Node.js](https://nodejs.org) 20.12 or newer on your PC, for setup and deploying.
 
 ## Setup
 
-1. **Put this folder in a *public* GitHub repository.** Public repositories get
-   unlimited free Actions minutes and a free status page; your location, keys,
-   plug ID and ntfy topic stay hidden as encrypted secrets. (A private repository
-   on the free plan has 2,000 minutes a month, so set the schedule in
-   `.github/workflows/wind-check.yml` to every 30 minutes and raise `lead_minutes`.)
+1. **Install the tools:** `npm install`
+2. **Fill in `.env`** (copy `.env.example`): `LATITUDE`, `LONGITUDE`, `GOVEE_API_KEY`,
+   and a long, hard-to-guess `NTFY_TOPIC` that you also subscribe to in the ntfy app.
+   `.env` is git-ignored; never commit it.
+3. **Find your plug:** `npm run devices`, then copy the `SKU|DEVICE_ID` value of the
+   inflatable plug into `GOVEE_DEVICES` (several plugs: separate with commas).
+4. **Test locally:** `npm run test-notify` should buzz your phone, and
+   `npm run dry-run` prints the wind and what the monitor would do, switching nothing.
+5. **Sign in to Cloudflare:** `npx wrangler login`
+6. **Create the database:** `npx wrangler d1 create wind-watch`, and put the
+   `database_id` it prints into `wrangler.toml`.
+7. **Deploy:** `npm run deploy`. Note the `https://wind-watch.<name>.workers.dev`
+   address it prints: that is your dashboard.
+8. **Add your private settings:** `npx wrangler secret bulk .env`. They are stored
+   encrypted by Cloudflare and are never shown on the dashboard.
+9. **Link notifications to the dashboard:** put the dashboard address in
+   `STATUS_PAGE_URL` in `wrangler.toml` and deploy again.
 
-2. **Create a local `.env`** by copying `.env.example`, and fill in `LATITUDE`,
-   `LONGITUDE` and `GOVEE_API_KEY`. `.env` is git-ignored; never commit it.
+The first scheduled check runs within 5 minutes; tap **Refresh** to run one now.
 
-3. **Find your plug:**
-
-   ```
-   python -m windguard devices
-   ```
-
-   Copy the `SKU|DEVICE_ID` value of the inflatable plug into `GOVEE_DEVICES` in
-   `.env`. Several plugs: separate them with commas. If your plug is not listed,
-   or is marked "no on/off switch", Govee's API does not support that model.
-
-4. **Set up notifications.** Pick a long, hard-to-guess topic name (anyone who
-   knows it can read your notifications), put it in `NTFY_TOPIC`, and subscribe
-   to the same name in the ntfy phone app. Then:
-
-   ```
-   python -m windguard test-notify
-   python -m windguard check --dry-run
-   ```
-
-   The first should buzz your phone. The second prints the current wind and what
-   the monitor would do, without switching anything.
-
-5. **Add the five values as repository secrets:** GitHub > your repository >
-   Settings > Secrets and variables > Actions > New repository secret.
-   Names: `LATITUDE`, `LONGITUDE`, `GOVEE_API_KEY`, `GOVEE_DEVICES`, `NTFY_TOPIC`.
-
-   Then open the **Actions** tab, choose **Wind check**, and press **Run
-   workflow** once to confirm it works. After that it runs on its own.
-
-6. **Optional status page (public repositories, or paid GitHub plans).**
-   Settings > Pages > Deploy from a branch > `status` / root. The page shows
-   current wind, the forecast being watched and the last action. Put its address
-   in `status_page_url` in `config.toml` so tapping a notification opens it.
-   The page contains wind numbers only: no location, keys or device IDs.
-   Without Pages, each run's summary in the Actions tab shows the same facts.
-
-## Settings (`config.toml`)
+## Settings (`wrangler.toml`, `[vars]`)
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `gust_threshold_mph` | 20 | Gust speed that counts as high wind |
-| `lead_minutes` | 30 | Switch off this long before the high wind is forecast |
-| `resume_below_mph` | 17 | Wind counts as passed below this |
-| `lookahead_hours` | 3 | How far ahead to read the forecast; the all-clear needs this whole window calm |
-| `calm_minutes` | 30 | How long it must stay calm before the all-clear |
+| `GUST_THRESHOLD_MPH` | 20 | Gust speed that counts as high wind |
+| `LEAD_MINUTES` | 30 | Switch off this long before the high wind is forecast |
+| `RESUME_BELOW_MPH` | 17 | Wind counts as passed below this |
+| `LOOKAHEAD_HOURS` | 3 | How far ahead to read the forecast; the all-clear needs this whole window calm |
+| `CALM_MINUTES` | 30 | How long it must stay calm before the all-clear |
+
+Change a value, then `npm run deploy`. The check frequency is `crons` in the same file.
 
 ## Notifications you can get
 
@@ -88,41 +65,38 @@ Nothing has to stay running at home.
 | Could not turn inflatables off (urgent) | The plug did not respond; turn it off yourself |
 | Wind monitor cannot get the forecast (urgent) | You are unprotected until it recovers |
 
-Failure alerts are sent once per outage, not every 15 minutes.
+Failure alerts are sent once per outage, not every 5 minutes.
 
 ## Commands
 
 ```
-python -m windguard check [--dry-run]   run one wind check
-python -m windguard devices             list Govee devices
-python -m windguard test-notify         send a test notification
-python -m windguard status              show the last check's result
+npm test              run the tests
+npm run devices       list Govee devices
+npm run test-notify   send a test notification
+npm run dry-run       one check that switches nothing and notifies nobody
+npm run deploy        publish to Cloudflare
+npx wrangler tail     watch the live Worker's logs
 ```
 
-## Tests
+No runtime packages: the Worker uses only the platform's built-in APIs.
 
-```
-python -m unittest discover -s tests -t .
-```
+## How it is built
 
-No packages to install; the project uses only the Python standard library.
+- `src/monitor.js`: the rules (when to switch off, when to send the all-clear).
+- `src/weather.js`, `src/govee.js`, `src/notify.js`: Open-Meteo, Govee and ntfy.
+- `src/app.js`: saved state in Cloudflare D1, the dashboard's data and the Refresh check.
+- `src/index.js`: Cloudflare entry point (5-minute cron and web requests).
+- `public/index.html`: the dashboard.
 
 ## Known limitations
 
-- **GitHub's scheduler is best-effort.** Runs are often 5-20 minutes late and are
-  occasionally skipped. With a 30-minute lead, a late run can mean the plug goes
-  off only shortly before (or just after) the wind starts. Raise `lead_minutes`
-  for more margin.
-- **GitHub pauses schedules in repositories with no activity for 60 days.** It
-  emails you first; re-enable the workflow in the Actions tab, or push any small
-  commit at the start of each season.
 - **Forecasts are not measurements.** A sudden local gust the forecast missed will
   not be caught. Stake and tether as usual.
 - **While the plug is being held off, it is switched off again if you turn it on.**
-  To override, raise the threshold or disable the workflow.
+  To override, raise `GUST_THRESHOLD_MPH` and deploy.
 - **If the forecast service is down, nothing is switched.** You get an urgent
   notification instead.
-- Speeds are in mph only. Windy periods inside a daily display schedule you run
-  in the Govee app are handled naturally: an "off" command to an off plug is harmless,
-  but a Govee schedule that turns the plug *on* during a hold will be countered
-  only at the next check (up to about 15 minutes later).
+- **The dashboard address is public** (it shows wind numbers and plug on/off only,
+  no location, keys or device IDs), and anyone with it can tap Refresh. That only
+  runs a check, at most once a minute, and a check can only ever turn the plug off.
+- Speeds are in mph only.

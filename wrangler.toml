@@ -1,0 +1,38 @@
+name = "wind-watch"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# The dashboard page. Anything not found here (status.json, history.json, /api/check)
+# is handled by the Worker.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Wind check every 5 minutes.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# State, latest status and 7-day history.
+[[d1_databases]]
+binding = "DB"
+database_name = "wind-watch"
+database_id = "REPLACE_WITH_DATABASE_ID"
+
+[observability]
+enabled = true
+
+# Settings. Private values (LATITUDE, LONGITUDE, GOVEE_API_KEY, GOVEE_DEVICES,
+# NTFY_TOPIC) are Cloudflare secrets: see README.
+[vars]
+# Gust speed that counts as high wind.
+GUST_THRESHOLD_MPH = "20"
+# Turn the inflatables off this many minutes before gusts are forecast to reach it.
+LEAD_MINUTES = "30"
+# The wind counts as passed once gusts stay below this...
+RESUME_BELOW_MPH = "17"
+# ...for the whole look-ahead window, and have done so for this long.
+LOOKAHEAD_HOURS = "3"
+CALM_MINUTES = "30"
+NTFY_SERVER = "https://ntfy.sh"
+# Tapping a notification opens this page.
+STATUS_PAGE_URL = ""

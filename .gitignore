@@ -1,4 +1,6 @@
 .env
-public/
+.dev.vars
+node_modules/
+.wrangler/
 __pycache__/
 *.pyc
