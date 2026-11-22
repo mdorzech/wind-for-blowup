@@ -95,14 +95,23 @@
   .banner.error { background: var(--error-bg); border-color: transparent; } .banner.error .chip { background: var(--error); color: var(--panel); } .banner.error .headline { color: var(--error); }
 
   /* Readings: instrument-style figures. */
-  .readings { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .readings { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  .reading.plug { padding-right: 12px; border-right: 1px solid var(--line); }
+  .plug-value { display: inline-flex; align-items: center; gap: 10px; }
+  .plug-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--muted); flex: none; }
+  .reading.plug.on .plug-dot { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-bg); }
+  .reading.plug.on .value { color: var(--ok); }
+  .reading.plug.alarm .plug-dot { background: var(--error); box-shadow: 0 0 0 4px var(--error-bg); }
+  .reading.plug.alarm .value { color: var(--error); }
+  @media (max-width: 760px) { .readings { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 16px; }
+    .reading.plug { grid-column: 1 / -1; border-right: 0; border-bottom: 1px solid var(--line); padding: 0 0 12px; } }
   .reading { display: grid; gap: 2px; }
   .reading .label { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
   .reading .value { font: 600 2.6rem/1 var(--font-display); font-variant-numeric: tabular-nums; }
   .reading .value small { font: 500 1rem var(--font-body); color: var(--muted); margin-left: 4px; }
   .reading .sub { font-size: 0.82rem; color: var(--muted); }
   .reading.over .value { color: var(--limit); }
-  @media (max-width: 620px) { .readings { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 16px; } }
+  @media (max-width: 520px) { .readings { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
   .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; margin-bottom: 8px; }
   .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.8rem; color: var(--muted); }
@@ -169,6 +178,7 @@
   <section class="panel" aria-labelledby="readings-title">
     <h2 id="readings-title" class="visually-hidden" hidden>Readings</h2>
     <div class="readings">
+      <div class="reading plug" id="r-plug"><span class="label">Inflatables plug</span><span class="plug-value"><span class="plug-dot" aria-hidden="true"></span><span class="value">&ndash;</span></span><span class="sub">&nbsp;</span></div>
       <div class="reading" id="r-gust"><span class="label">Gusts now</span><span class="value num">&ndash;</span><span class="sub">mph</span></div>
       <div class="reading" id="r-wind"><span class="label">Wind now</span><span class="value num">&ndash;</span><span class="sub">mph, sustained</span></div>
       <div class="reading" id="r-peak"><span class="label">Peak gust ahead</span><span class="value num">&ndash;</span><span class="sub">&nbsp;</span></div>
@@ -408,6 +418,20 @@
     setReading("r-peak", s.peak_gust_mph, peakSub, s.peak_gust_mph >= limit);
     setReading("r-limit", limit, "mph gusts, off " + s.lead_minutes + " min early", false);
 
+    var plugBox = $("r-plug");
+    var on = s.plug_on;
+    var known = on === true || on === false;
+    plugBox.querySelector(".value").textContent = on === true ? "On" : on === false ? "Off" : "Unknown";
+    plugBox.classList.toggle("on", on === true && !s.hold);
+    plugBox.classList.toggle("alarm", on === true && s.hold);
+    var plugSub = known ? "as of " + fmtTime(checked) : "Govee did not report it";
+    if (on === true && s.hold) { plugSub = "should be off: turn it off in the Govee app"; }
+    else if (s.plugs && s.plugs.length > 1 && known) {
+      var count = s.plugs.filter(function (p) { return p === true; }).length;
+      plugSub = count + " of " + s.plugs.length + " plugs on, " + plugSub;
+    }
+    plugBox.querySelector(".sub").textContent = plugSub;
+
     $("rule-off").textContent = s.lead_minutes + " minutes before gusts reach " + round(limit) + " mph";
     $("rule-clear").textContent = "Gusts stay under " + round(s.resume_below_mph) + " mph for the next " + s.lookahead_hours + " h";
   }
@@ -439,7 +463,7 @@
     var to = Date.now();
     var from = to - state.rangeHours * 3600000;
     var checks = (h && h.checks || []).map(function (c) {
-      return { t: new Date(c[0]).getTime(), v: c[1], peak: c[2], hold: c[3] === 1, level: c[4] };
+      return { t: new Date(c[0]).getTime(), v: c[1], peak: c[2], hold: c[3] === 1, level: c[4], plug: c[5] };
     }).filter(function (c) { return c.t >= from && !isNaN(c.t); });
     if (checks.length < 2) {
       box.innerHTML = '<p class="empty">History builds up with each check. Come back in a little while.</p>';
@@ -460,7 +484,8 @@
         { points: checks.map(function (c) { return { t: c.t, v: c.peak }; }), cls: "peak", maxGapMs: gap }
       ],
       tip: function (p) {
-        return fmtDayTime(new Date(p.t)) + " · gusts " + round(p.v) + " mph · peak ahead " + round(p.peak) + (p.hold ? " · held off" : "");
+        return fmtDayTime(new Date(p.t)) + " · gusts " + round(p.v) + " mph · peak ahead " + round(p.peak) +
+          (p.plug === 1 ? " · plug on" : p.plug === 0 ? " · plug off" : "") + (p.hold ? " · held off" : "");
       }
     });
   }

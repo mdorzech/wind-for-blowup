@@ -52,6 +52,7 @@ def add_check(history: dict[str, list], status: dict[str, Any], now: datetime) -
         status.get("peak_gust_mph"),
         1 if status.get("hold") else 0,
         status.get("level"),
+        {True: 1, False: 0}.get(status.get("plug_on")),  # None when unknown
     ])
 
     events = [e for e in history["events"] if isinstance(e, dict)]

@@ -231,6 +231,58 @@ class FailureTests(unittest.TestCase):
         self.assertFalse(original.hold)
 
 
+class PlugStateTests(unittest.TestCase):
+    def test_calm_check_reports_plug_on_without_switching(self):
+        result, plug, _ = check(outlook=make_outlook(5, 8))
+        self.assertIs(result.status["plug_on"], True)
+        self.assertEqual(result.status["plugs"], [True])
+        self.assertEqual(plug.off_calls, [])
+
+    def test_calm_check_reports_plug_off(self):
+        result, _, _ = check(outlook=make_outlook(5, 8), plug=FakePlug(on=False))
+        self.assertIs(result.status["plug_on"], False)
+
+    def test_switched_off_plug_is_reported_off(self):
+        result, plug, _ = check(outlook=make_outlook(30))
+        self.assertEqual(plug.off_calls, [PLUG_A])
+        self.assertIs(result.status["plug_on"], False)
+
+    def test_failed_switch_off_still_reports_on(self):
+        result, _, _ = check(outlook=make_outlook(30), plug=FakePlug(off_fails=True))
+        self.assertIs(result.status["plug_on"], True)
+
+    def test_unreadable_state_is_unknown_and_off_is_still_sent(self):
+        result, plug, _ = check(outlook=make_outlook(30), plug=FakePlug(state_fails=True))
+        self.assertEqual(plug.off_calls, [PLUG_A])
+        self.assertIs(result.status["plug_on"], False)
+        calm, _, _ = check(outlook=make_outlook(5), plug=FakePlug(state_fails=True))
+        self.assertIsNone(calm.status["plug_on"])
+
+    def test_plug_state_is_reported_when_the_forecast_fails(self):
+        result, _, _ = check(error=WeatherError("down"))
+        self.assertIs(result.status["plug_on"], True)
+
+    def test_any_plug_on_counts_as_on(self):
+        class TwoPlugs(FakePlug):
+            def is_on(self, device):
+                return device == PLUG_B
+
+        result, _, _ = check(outlook=make_outlook(5), plug=TwoPlugs(), devices=(PLUG_A, PLUG_B))
+        self.assertEqual(result.status["plugs"], [False, True])
+        self.assertIs(result.status["plug_on"], True)
+
+    def test_state_is_read_once_per_plug(self):
+        class Counting(FakePlug):
+            reads = 0
+
+            def is_on(self, device):
+                Counting.reads += 1
+                return True
+
+        check(outlook=make_outlook(30), plug=Counting())
+        self.assertEqual(Counting.reads, 1)
+
+
 class DryRunAndStatusTests(unittest.TestCase):
     def test_dry_run_switches_nothing_and_notifies_nobody(self):
         plug, notifier = FakePlug(), FakeNotifier()

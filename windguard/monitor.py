@@ -59,23 +59,35 @@ def _parse_time(value: str | None, fallback: datetime) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def _switch_off(devices: tuple[Device, ...], plug: Plug, dry_run: bool) -> tuple[int, int]:
-    """Switch off every plug that is not already off. Returns (switched, failed)."""
-    switched = failed = 0
+def _read_plugs(devices: tuple[Device, ...], plug: Plug) -> list[bool | None]:
+    """Power state of each plug: True on, False off, None when Govee cannot say."""
+    states: list[bool | None] = []
     for number, device in enumerate(devices, start=1):
+        try:
+            states.append(plug.is_on(device))
+        except GoveeError as exc:
+            log.warning("plug %d state unavailable: %s", number, exc)
+            states.append(None)
+    return states
+
+
+def _switch_off(
+    devices: tuple[Device, ...], plug: Plug, dry_run: bool, states: list[bool | None]
+) -> tuple[int, int]:
+    """Switch off every plug that is not known to be off, updating states. Returns (switched, failed)."""
+    switched = failed = 0
+    for index, device in enumerate(devices):
+        number = index + 1
+        if states[index] is False:
+            log.info("plug %d is already off", number)
+            continue
         if dry_run:
             log.info("dry run: would switch off plug %d", number)
             continue
         try:
-            already_off = plug.is_on(device) is False
-        except GoveeError:
-            already_off = False  # state unknown: send the off command anyway
-        if already_off:
-            log.info("plug %d is already off", number)
-            continue
-        try:
-            plug.turn_off(device)
+            plug.turn_off(device)  # sent even when the state is unknown
             switched += 1
+            states[index] = False
             log.info("plug %d switched off", number)
         except GoveeError as exc:
             failed += 1
@@ -95,6 +107,7 @@ def run_check(
 ) -> CheckResult:
     state = copy.deepcopy(previous)
     problems: list[str] = []
+    plugs = _read_plugs(cfg.devices, plug)
 
     def send(title: str, message: str, *, urgent: bool = False, tag: str = "wind_face") -> bool:
         if dry_run:
@@ -130,7 +143,8 @@ def run_check(
             "Your inflatables are not being protected until this clears. "
             "If it is windy, turn them off yourself.",
         )
-        return CheckResult(state, _status(cfg, state, now, None, problems, dry_run), False)
+        status = _status(cfg, state, now, None, problems, dry_run)
+        return CheckResult(state, _with_plugs(status, plugs), False)
 
     if clear_alert("weather"):
         send("Wind monitor is working again", "The forecast is available and checks have resumed.")
@@ -155,7 +169,7 @@ def run_check(
         state.calm_since = None
         if entering:
             state.hold_since = now.isoformat()
-        switched, failed = _switch_off(cfg.devices, plug, dry_run)
+        switched, failed = _switch_off(cfg.devices, plug, dry_run, plugs)
         start = f"from about {_local_clock(onset, offset)}" if onset and onset > now else "right now"
         gusts = f"Gusts reach {limit:.0f} mph {start}, peaking at {peak:.0f} mph."
 
@@ -209,7 +223,20 @@ def run_check(
     upcoming = None
     if not state.hold and onset is not None:
         upcoming = (onset, onset - lead)
-    return CheckResult(state, _status(cfg, state, now, outlook, problems, dry_run, upcoming), not problems)
+    status = _status(cfg, state, now, outlook, problems, dry_run, upcoming)
+    return CheckResult(state, _with_plugs(status, plugs), not problems)
+
+
+def _with_plugs(status: dict[str, Any], plugs: list[bool | None]) -> dict[str, Any]:
+    """Add plug power states, by position only (never device IDs), and an overall summary."""
+    status["plugs"] = plugs
+    if any(p is True for p in plugs):
+        status["plug_on"] = True
+    elif plugs and all(p is False for p in plugs):
+        status["plug_on"] = False
+    else:
+        status["plug_on"] = None
+    return status
 
 
 def _status(

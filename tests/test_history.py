@@ -20,8 +20,11 @@ def status(**overrides):
 
 class HistoryTests(unittest.TestCase):
     def test_adds_a_compact_row_per_check(self):
-        history = add_check({"checks": [], "events": []}, status(hold=True, level="hold"), NOW)
-        self.assertEqual(history["checks"], [["2026-12-01T18:10:00+00:00", 12.5, 24.4, 1, "hold"]])
+        history = add_check({"checks": [], "events": []}, status(hold=True, level="hold", plug_on=False), NOW)
+        self.assertEqual(history["checks"], [["2026-12-01T18:10:00+00:00", 12.5, 24.4, 1, "hold", 0]])
+        history = add_check(history, status(plug_on=True), NOW)
+        history = add_check(history, status(plug_on=None), NOW)
+        self.assertEqual([row[5] for row in history["checks"]], [0, 1, None])
         self.assertEqual(history["events"], [])
 
     def test_drops_checks_older_than_seven_days(self):
