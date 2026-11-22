@@ -162,6 +162,8 @@ def run_check(
 
         if switched:
             state.record("Switched inflatables off for wind", now)
+        elif dry_run:
+            state.record("Would switch inflatables off for wind (dry run)", now)
         elif entering and not failed:
             state.record("High wind; inflatables were already off", now)
 

@@ -203,6 +203,7 @@ class DryRunAndStatusTests(unittest.TestCase):
         self.assertEqual(plug.off_calls, [])
         self.assertEqual(notifier.sent, [])
         self.assertTrue(result.status["dry_run"])
+        self.assertEqual(result.state.last_action, "Would switch inflatables off for wind (dry run)")
 
     def test_status_contains_no_private_values(self):
         cfg = make_config()
