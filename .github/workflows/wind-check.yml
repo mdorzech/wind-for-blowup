@@ -2,8 +2,9 @@ name: Wind check
 
 on:
   schedule:
-    # Every 15 minutes, offset from the top of the hour (GitHub delays busy slots).
-    - cron: "7,22,37,52 * * * *"
+    # Every 5 minutes, offset from the top of the hour (GitHub delays busy slots).
+    # Free in public repositories; a private repository would exceed the free minutes.
+    - cron: "2-57/5 * * * *"
   workflow_dispatch:
 
 permissions:

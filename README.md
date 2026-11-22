@@ -2,7 +2,7 @@
 
 Turns your inflatable decorations off before high wind arrives.
 
-Every 15 minutes a free GitHub Actions job reads the 15-minute wind forecast for
+Every 5 minutes a free GitHub Actions job reads the 15-minute wind forecast for
 your home (Open-Meteo). When gusts are forecast to reach 20 mph, it switches your
 Govee smart plug off 30 minutes beforehand (or straight away if it is already that
 windy) and sends a push notification to your phone.
@@ -22,9 +22,11 @@ Nothing has to stay running at home.
 
 ## Setup
 
-1. **Put this folder in a GitHub repository.** A *private* repository keeps
-   everything to yourself. A *public* one additionally lets you use the free
-   status web page (step 6).
+1. **Put this folder in a *public* GitHub repository.** Public repositories get
+   unlimited free Actions minutes and a free status page; your location, keys,
+   plug ID and ntfy topic stay hidden as encrypted secrets. (A private repository
+   on the free plan has 2,000 minutes a month, so set the schedule in
+   `.github/workflows/wind-check.yml` to every 30 minutes and raise `lead_minutes`.)
 
 2. **Create a local `.env`** by copying `.env.example`, and fill in `LATITUDE`,
    `LONGITUDE` and `GOVEE_API_KEY`. `.env` is git-ignored; never commit it.

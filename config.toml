@@ -24,4 +24,4 @@ calm_minutes = 30
 ntfy_server = "https://ntfy.sh"
 
 # Optional: your status page address. Tapping a notification opens it.
-status_page_url = ""
+status_page_url = "https://mdorzech.github.io/wind-for-blowup/"
