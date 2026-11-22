@@ -27,6 +27,7 @@ class Config:
     gust_threshold_mph: float
     resume_below_mph: float
     lookahead_hours: int
+    lead_minutes: int
     calm_minutes: int
     govee_api_key: str
     devices: tuple[Device, ...]
@@ -122,6 +123,9 @@ def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
         raise ConfigError("wind.lookahead_hours must be a whole number between 1 and 48")
     if calm != int(calm) or not 0 <= calm <= 1440:
         raise ConfigError("wind.calm_minutes must be a whole number between 0 and 1440")
+    lead = _number(wind.get("lead_minutes", 30), "wind.lead_minutes")
+    if lead != int(lead) or not 0 <= lead <= lookahead * 60:
+        raise ConfigError("wind.lead_minutes must be a whole number between 0 and lookahead_hours x 60")
 
     server = str(notify.get("ntfy_server", "https://ntfy.sh")).rstrip("/")
     if not server.startswith("https://"):
@@ -140,6 +144,7 @@ def load_config(path: Path, env: Mapping[str, str] | None = None) -> Config:
         gust_threshold_mph=threshold,
         resume_below_mph=resume,
         lookahead_hours=int(lookahead),
+        lead_minutes=int(lead),
         calm_minutes=int(calm),
         govee_api_key=govee_api_key(env),
         devices=parse_devices(env.get("GOVEE_DEVICES", "")),

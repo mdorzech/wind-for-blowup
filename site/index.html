@@ -28,11 +28,11 @@
           padding: 16px; margin-bottom: 16px; }
   .banner { border-left: 6px solid var(--muted); }
   .banner.ok { background: var(--ok-bg); border-color: var(--ok); }
-  .banner.hold { background: var(--hold-bg); border-color: var(--hold); }
+  .banner.hold, .banner.watch { background: var(--hold-bg); border-color: var(--hold); }
   .banner.error { background: var(--error-bg); border-color: var(--error); }
   .headline { font-size: 1.4rem; font-weight: 700; margin: 0; }
   .banner.ok .headline { color: var(--ok); }
-  .banner.hold .headline { color: var(--hold); }
+  .banner.hold .headline, .banner.watch .headline { color: var(--hold); }
   .banner.error .headline { color: var(--error); }
   .detail { margin: 4px 0 0; }
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
@@ -68,8 +68,8 @@
     </div>
     <p class="muted" id="limit"></p>
     <table id="hours" hidden>
-      <caption class="muted" style="text-align:left">Forecast for the hours being watched</caption>
-      <thead><tr><th scope="col">Hour</th><th scope="col">Wind</th><th scope="col">Gusts</th><th scope="col"><span class="muted">vs. limit</span></th></tr></thead>
+      <caption class="muted" style="text-align:left">Forecast being watched (15-minute steps)</caption>
+      <thead><tr><th scope="col">Time</th><th scope="col">Wind</th><th scope="col">Gusts</th><th scope="col"><span class="muted">vs. limit</span></th></tr></thead>
       <tbody></tbody>
     </table>
   </section>
@@ -119,10 +119,11 @@
       byId("now-gust").textContent = Math.round(s.current_gust_mph);
       byId("peak").textContent = Math.round(s.peak_gust_mph);
       byId("peak-label").textContent = "peak gust, next " + s.lookahead_hours + " h (mph)";
-      byId("limit").textContent = "Shut-off limit: " + s.threshold_mph + " mph gusts.";
+      byId("limit").textContent = "Shut-off: " + s.lead_minutes + " minutes before gusts reach " +
+        s.threshold_mph + " mph.";
       var body = byId("hours").querySelector("tbody");
       var scale = Math.max(s.threshold_mph * 1.5, s.peak_gust_mph);
-      (s.hours || []).forEach(function (h) {
+      (s.forecast || []).forEach(function (h) {
         var over = h.gust_mph >= s.threshold_mph;
         var row = body.insertRow();
         if (over) { row.className = "over"; }
@@ -140,7 +141,7 @@
         track.appendChild(fill);
         cell.appendChild(track);
       });
-      byId("hours").hidden = !(s.hours && s.hours.length);
+      byId("hours").hidden = !(s.forecast && s.forecast.length);
     }
 
     if (s.problems && s.problems.length) {

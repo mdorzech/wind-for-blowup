@@ -14,4 +14,7 @@
 | 2026-11-22 | Location, key, device IDs, topic are secrets; never written to status files or logs | Status branch may be public |
 | 2026-11-22 | Resume level 3 mph under the threshold plus a 30-minute calm period | Stops repeated off/all-clear messages on borderline days |
 | 2026-11-22 | Failure alerts once per outage | Reviewer condition; avoids a notification every 15 minutes |
+| 2026-11-22 | Switch off 30 min before forecast high wind (configurable `lead_minutes`) | Owner's request; replaces "anywhere in next 3 h" |
+| 2026-11-22 | 15-minute forecast steps; "high wind time" = first step at or above the threshold | Hourly steps too coarse for a 30-minute lead |
+| 2026-11-22 | Once held, stay held while the threshold appears anywhere in the 3 h window | Avoids an all-clear between two gusty spells |
 | 2026-11-22 | Forecast outage switches nothing | Not specified by the owner; simplest safe behaviour, documented as a limitation |

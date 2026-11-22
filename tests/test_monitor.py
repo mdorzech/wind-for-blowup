@@ -49,10 +49,39 @@ class WindyTests(unittest.TestCase):
         self.assertFalse(result.state.hold)
         self.assertEqual(result.status["level"], "ok")
 
-    def test_peak_time_is_reported_in_local_time(self):
-        # Peak is the 19:00 UTC hour; the outlook is UTC-6, so 1:00 PM local.
+    def test_wind_start_is_reported_in_local_time(self):
+        # Gusts reach the limit at the 18:15 UTC step; the outlook is UTC-6, so 12:15 PM local.
         _, _, notifier = check(outlook=make_outlook(5, 10, 30))
-        self.assertIn("around 1:00 PM", notifier.sent[0][1])
+        self.assertIn("from about 12:15 PM", notifier.sent[0][1])
+        self.assertIn("peaking at 30 mph", notifier.sent[0][1])
+
+    def test_wind_beyond_lead_time_only_shows_a_warning_on_the_status_page(self):
+        # Gusts reach 25 mph at 19:00 UTC, 50 minutes away; lead time is 30 minutes.
+        result, plug, notifier = check(outlook=make_outlook(5, 10, 10, 10, 10, 25))
+        self.assertEqual(plug.off_calls, [])
+        self.assertEqual(notifier.sent, [])
+        self.assertFalse(result.state.hold)
+        self.assertEqual(result.status["level"], "watch")
+        self.assertEqual(result.status["headline"], "High wind expected at 1:00 PM")
+        self.assertIn("turned off at about 12:30 PM", result.status["detail"])
+        self.assertEqual(result.status["switch_off_at"], "2026-12-01T18:30:00+00:00")
+
+    def test_wind_exactly_at_lead_time_turns_plug_off(self):
+        # At 18:15, the 18:45 step is exactly 30 minutes away.
+        now = NOW.replace(minute=15)
+        result, plug, _ = check(outlook=make_outlook(5, 10, 10, 10, 25), now=now)
+        self.assertEqual(plug.off_calls, [PLUG_A])
+        self.assertTrue(result.state.hold)
+
+    def test_one_minute_before_lead_time_does_nothing(self):
+        now = NOW.replace(minute=14)
+        result, plug, _ = check(outlook=make_outlook(5, 10, 10, 10, 25), now=now)
+        self.assertEqual(plug.off_calls, [])
+        self.assertEqual(result.status["level"], "watch")
+
+    def test_longer_lead_time_from_config(self):
+        _, plug, _ = check(outlook=make_outlook(5, 10, 10, 10, 10, 25), lead_minutes=60)
+        self.assertEqual(plug.off_calls, [PLUG_A])
 
     def test_all_plugs_are_switched(self):
         # FakePlug shares one on/off flag, so make the state unknown for both plugs.
@@ -76,6 +105,15 @@ class WindyTests(unittest.TestCase):
         self.assertEqual(plug.off_calls, [])
         self.assertEqual(notifier.sent, [])
         self.assertEqual(result.state.hold_since, "2026-12-01T17:00:00+00:00")
+
+    def test_hold_continues_while_more_wind_is_forecast_beyond_lead_time(self):
+        held = State(hold=True, hold_since="x")
+        result, _, notifier = check(state=held, outlook=make_outlook(5, 10, 10, 10, 10, 10, 10, 25),
+                                    plug=FakePlug(on=False))
+        self.assertTrue(result.state.hold)
+        self.assertIsNone(result.state.calm_since)
+        self.assertEqual(notifier.sent, [])
+        self.assertEqual(result.status["level"], "hold")
 
     def test_plug_turned_back_on_during_wind_is_switched_off_again(self):
         held = State(hold=True, hold_since="2026-12-01T17:00:00+00:00")
@@ -217,7 +255,7 @@ class DryRunAndStatusTests(unittest.TestCase):
         status = result.status
         self.assertEqual(status["current_gust_mph"], 10)
         self.assertEqual(status["peak_gust_mph"], 15)
-        self.assertEqual(len(status["hours"]), 2)
+        self.assertEqual(len(status["forecast"]), 2)
         self.assertEqual(status["threshold_mph"], 20)
 
 

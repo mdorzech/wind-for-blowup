@@ -48,6 +48,7 @@ class ConfigTests(TempDirTest):
 
     def test_defaults(self):
         cfg = self.load()
+        self.assertEqual(cfg.lead_minutes, 30)
         self.assertEqual(cfg.gust_threshold_mph, 20)
         self.assertEqual(cfg.resume_below_mph, 17)
         self.assertEqual(cfg.lookahead_hours, 3)
@@ -67,6 +68,9 @@ class ConfigTests(TempDirTest):
             ("[wind]\nresume_below_mph = 30\n", {}, "resume_below_mph"),
             ("[wind]\nlookahead_hours = 0\n", {}, "lookahead_hours"),
             ("[wind]\nlookahead_hours = 2.5\n", {}, "lookahead_hours"),
+            ("[wind]\nlead_minutes = -5\n", {}, "lead_minutes"),
+            ("[wind]\nlead_minutes = 15.5\n", {}, "lead_minutes"),
+            ("[wind]\nlookahead_hours = 1\nlead_minutes = 90\n", {}, "lead_minutes"),
             ("[wind]\ncalm_minutes = -1\n", {}, "calm_minutes"),
             ("[notify]\nntfy_server = 'http://ntfy.sh'\n", {}, "ntfy_server"),
             ("[notify]\nstatus_page_url = 'javascript:alert(1)'\n", {}, "status_page_url"),
@@ -109,29 +113,35 @@ class ConfigTests(TempDirTest):
         self.assertEqual(cfg.gust_threshold_mph, 20)
 
 
-def forecast_payload(gusts_by_hour_offset: dict, current=(6.0, 9.0), offset=-21600):
+def forecast_payload(gusts_by_step: dict, current=(6.0, 9.0), offset=-21600):
+    """Open-Meteo-style payload; keys are 15-minute steps counted from 18:00 UTC."""
     base = NOW.replace(minute=0)
-    stamps = sorted(gusts_by_hour_offset)
+    steps = sorted(gusts_by_step)
     return {
         "utc_offset_seconds": offset,
         "current": {"wind_speed_10m": current[0], "wind_gusts_10m": current[1]},
-        "hourly": {
-            "time": [int((base + timedelta(hours=h)).timestamp()) for h in stamps],
-            "wind_speed_10m": [5.0 for _ in stamps],
-            "wind_gusts_10m": [gusts_by_hour_offset[h] for h in stamps],
+        "minutely_15": {
+            "time": [int((base + timedelta(minutes=15 * s)).timestamp()) for s in steps],
+            "wind_speed_10m": [5.0 for _ in steps],
+            "wind_gusts_10m": [gusts_by_step[s] for s in steps],
         },
     }
 
 
 class WeatherTests(unittest.TestCase):
-    def test_only_hours_in_the_window_count(self):
-        # NOW is 18:10. Window of 3 h covers hours starting 18:00..21:00.
-        payload = forecast_payload({-2: 50, -1: 50, 0: 11, 1: 12, 2: 13, 3: 14, 4: 50, 5: 50})
+    def test_only_steps_in_the_window_count(self):
+        # NOW is 18:10. A 3 h window keeps the 18:00 step (in progress) through 21:00 (step 12).
+        payload = forecast_payload({-2: 50, -1: 50, 0: 11, 1: 12, 11: 13, 12: 14, 13: 50, 14: 50})
         outlook = parse_outlook(payload, NOW, 3)
-        self.assertEqual([h.gust_mph for h in outlook.hours], [11, 12, 13, 14])
+        self.assertEqual([r.gust_mph for r in outlook.readings], [11, 12, 13, 14])
         self.assertEqual(outlook.peak_gust_mph, 14)
         self.assertEqual(outlook.peak_time, NOW.replace(minute=0) + timedelta(hours=3))
         self.assertEqual(outlook.utc_offset_seconds, -21600)
+
+    def test_first_time_at_or_above(self):
+        outlook = parse_outlook(forecast_payload({0: 10, 1: 15, 2: 20, 3: 25, 4: 12}), NOW, 3)
+        self.assertEqual(outlook.first_time_at_or_above(20), NOW.replace(minute=30))
+        self.assertIsNone(outlook.first_time_at_or_above(30))
 
     def test_current_gust_can_be_the_peak(self):
         outlook = parse_outlook(forecast_payload({0: 10, 1: 12}, current=(15, 28)), NOW, 3)
@@ -142,10 +152,10 @@ class WeatherTests(unittest.TestCase):
         missing_gust = forecast_payload({0: 10, 1: None})
         negative = forecast_payload({0: -5})
         ragged = forecast_payload({0: 10, 1: 12})
-        ragged["hourly"]["wind_gusts_10m"].pop()
+        ragged["minutely_15"]["wind_gusts_10m"].pop()
         no_current = forecast_payload({0: 10})
         del no_current["current"]
-        outside = forecast_payload({-5: 10, 9: 10})
+        outside = forecast_payload({-5: 10, 20: 10})
         for name, payload in [
             ("missing", missing_gust), ("negative", negative), ("ragged", ragged),
             ("no current", no_current), ("outside window", outside),
@@ -167,7 +177,8 @@ class WeatherTests(unittest.TestCase):
         method, url = calls[0]
         self.assertEqual(method, "GET")
         self.assertTrue(url.startswith("https://api.open-meteo.com/v1/forecast?"))
-        for part in ("latitude=41.5000", "longitude=-87.5000", "wind_speed_unit=mph", "timeformat=unixtime"):
+        for part in ("latitude=41.5000", "longitude=-87.5000", "wind_speed_unit=mph", "timeformat=unixtime",
+                     "minutely_15=wind_speed_10m%2Cwind_gusts_10m", "forecast_minutely_15=16"):
             self.assertIn(part, url)
 
         def broken(method, url, **kwargs):

@@ -2,15 +2,19 @@
 # they are GitHub Actions secrets (or a local .env file) - see README.
 
 [wind]
-# Turn the inflatables off when gusts now, or forecast within the look-ahead
-# window, reach this speed.
+# Gust speed that counts as high wind.
 gust_threshold_mph = 20
+
+# Turn the inflatables off this many minutes before the forecast says gusts
+# will reach the threshold (or immediately if they already have).
+lead_minutes = 30
 
 # The wind counts as "passed" once the peak gust is below this. Keeping it a
 # little under the threshold stops on/off flapping on borderline days.
 resume_below_mph = 17
 
-# How far ahead to look at the forecast.
+# How far ahead the forecast is read. The all-clear is only sent when gusts
+# stay under resume_below_mph for this whole window.
 lookahead_hours = 3
 
 # How long the forecast must stay calm before you get the all-clear message.

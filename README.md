@@ -2,9 +2,10 @@
 
 Turns your inflatable decorations off before high wind arrives.
 
-Every 15 minutes a free GitHub Actions job reads the wind forecast for your home
-(Open-Meteo). If gusts now, or forecast within the next 3 hours, reach 20 mph, it
-switches your Govee smart plug off and sends a push notification to your phone.
+Every 15 minutes a free GitHub Actions job reads the 15-minute wind forecast for
+your home (Open-Meteo). When gusts are forecast to reach 20 mph, it switches your
+Govee smart plug off 30 minutes beforehand (or straight away if it is already that
+windy) and sends a push notification to your phone.
 When the wind has passed you get a second notification, and **you** decide whether
 to turn the inflatables back on in the Govee app. This program never turns
 anything on.
@@ -68,9 +69,10 @@ Nothing has to stay running at home.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `gust_threshold_mph` | 20 | Switch off when gusts reach this |
+| `gust_threshold_mph` | 20 | Gust speed that counts as high wind |
+| `lead_minutes` | 30 | Switch off this long before the high wind is forecast |
 | `resume_below_mph` | 17 | Wind counts as passed below this |
-| `lookahead_hours` | 3 | How far ahead to read the forecast |
+| `lookahead_hours` | 3 | How far ahead to read the forecast; the all-clear needs this whole window calm |
 | `calm_minutes` | 30 | How long it must stay calm before the all-clear |
 
 ## Notifications you can get
@@ -106,8 +108,9 @@ No packages to install; the project uses only the Python standard library.
 ## Known limitations
 
 - **GitHub's scheduler is best-effort.** Runs are often 5-20 minutes late and are
-  occasionally skipped. The 3-hour look-ahead is what makes this acceptable; do
-  not shorten it much.
+  occasionally skipped. With a 30-minute lead, a late run can mean the plug goes
+  off only shortly before (or just after) the wind starts. Raise `lead_minutes`
+  for more margin.
 - **GitHub pauses schedules in repositories with no activity for 60 days.** It
   emails you first; re-enable the workflow in the Actions tab, or push any small
   commit at the start of each season.

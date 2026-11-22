@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0 - 2026-11-22
+
+- Switch off a set time (`lead_minutes`, default 30) before gusts are forecast to
+  reach the threshold, instead of as soon as they appear anywhere in the next 3 hours.
+- Uses Open-Meteo's 15-minute forecast for timing.
+- Status page shows "High wind expected at ..." with the planned switch-off time.
+
 ## 1.0.0 - 2026-11-22
 
 - Wind check against the Open-Meteo forecast (current gusts plus look-ahead window).

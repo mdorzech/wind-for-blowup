@@ -1,8 +1,11 @@
 """One wind check: read the forecast, decide, switch plugs off, notify.
 
 The rules, in order:
-  1. Peak gust (now or within the look-ahead window) at or above the threshold:
-     hold the inflatables off. Plugs found on are switched off on every windy run.
+  1. Gusts at or above the threshold now, or forecast to reach it within the
+     lead time (default 30 minutes): hold the inflatables off. While holding,
+     the hold continues as long as the threshold is reached anywhere in the
+     look-ahead window, and plugs found on are switched off on every run.
+     High wind further out than the lead time is shown on the status page only.
   2. While holding, once the peak has stayed below the resume level for the calm
      period: tell the user the wind has passed. The user decides whether to turn
      the inflatables back on; this program never switches anything on.
@@ -133,22 +136,28 @@ def run_check(
         send("Wind monitor is working again", "The forecast is available and checks have resumed.")
 
     peak = outlook.peak_gust_mph
-    peak_time = outlook.peak_time
-    when = f"around {_local_clock(peak_time, outlook.utc_offset_seconds)}" if peak_time else "right now"
+    limit = cfg.gust_threshold_mph
+    offset = outlook.utc_offset_seconds
+    windy_now = outlook.current_gust_mph >= limit
+    onset = None if windy_now else outlook.first_time_at_or_above(limit)
+    lead = timedelta(minutes=cfg.lead_minutes)
+    due = windy_now or (onset is not None and onset - now <= lead)
     log.info(
-        "gusts now %.0f mph, peak %.0f mph in the next %d h (limit %.0f)",
-        outlook.current_gust_mph, peak, cfg.lookahead_hours, cfg.gust_threshold_mph,
+        "gusts now %.0f mph, peak %.0f mph in the next %d h (limit %.0f)%s",
+        outlook.current_gust_mph, peak, cfg.lookahead_hours, limit,
+        f", reaching the limit at {_local_clock(onset, offset)}" if onset else "",
     )
 
-    # --- rule 1: windy -> hold off ------------------------------------------
-    if peak >= cfg.gust_threshold_mph:
+    # --- rule 1: windy now or within the lead time -> hold off -------------
+    if due or (state.hold and peak >= limit):
         entering = not state.hold
         state.hold = True
         state.calm_since = None
         if entering:
             state.hold_since = now.isoformat()
         switched, failed = _switch_off(cfg.devices, plug, dry_run)
-        gusts = f"Gusts up to {peak:.0f} mph {when} (limit {cfg.gust_threshold_mph:.0f} mph)."
+        start = f"from about {_local_clock(onset, offset)}" if onset and onset > now else "right now"
+        gusts = f"Gusts reach {limit:.0f} mph {start}, peaking at {peak:.0f} mph."
 
         if failed:
             problems.append(f"{failed} plug(s) could not be switched off")
@@ -197,7 +206,10 @@ def run_check(
         else:
             state.calm_since = None  # between resume level and limit: keep waiting
 
-    return CheckResult(state, _status(cfg, state, now, outlook, problems, dry_run), not problems)
+    upcoming = None
+    if not state.hold and onset is not None:
+        upcoming = (onset, onset - lead)
+    return CheckResult(state, _status(cfg, state, now, outlook, problems, dry_run, upcoming), not problems)
 
 
 def _status(
@@ -207,9 +219,19 @@ def _status(
     outlook: Outlook | None,
     problems: list[str],
     dry_run: bool,
+    upcoming: tuple[datetime, datetime] | None = None,
 ) -> dict[str, Any]:
     """Build the public status document. It must never contain location, keys or device IDs."""
-    if outlook is None:
+    if outlook is not None and upcoming is not None:
+        onset, switch_off_at = upcoming
+        offset = outlook.utc_offset_seconds
+        level = "watch"
+        headline = f"High wind expected at {_local_clock(onset, offset)}"
+        detail = (
+            f"Gusts reach {cfg.gust_threshold_mph:.0f} mph then. The inflatables will be "
+            f"turned off at about {_local_clock(switch_off_at, offset)}."
+        )
+    elif outlook is None:
         level, headline = "error", "Monitor problem: no forecast"
         detail = "The forecast could not be read, so the inflatables are not being protected."
     elif state.hold:
@@ -241,13 +263,16 @@ def _status(
         "threshold_mph": cfg.gust_threshold_mph,
         "resume_below_mph": cfg.resume_below_mph,
         "lookahead_hours": cfg.lookahead_hours,
+        "lead_minutes": cfg.lead_minutes,
+        "high_wind_at": upcoming[0].isoformat() if upcoming else None,
+        "switch_off_at": upcoming[1].isoformat() if upcoming else None,
         "problems": problems,
         "dry_run": dry_run,
         "current_speed_mph": None,
         "current_gust_mph": None,
         "peak_gust_mph": None,
         "peak_time": None,
-        "hours": [],
+        "forecast": [],
     }
     if outlook is not None:
         status.update(
@@ -255,9 +280,9 @@ def _status(
             current_gust_mph=round(outlook.current_gust_mph, 1),
             peak_gust_mph=round(outlook.peak_gust_mph, 1),
             peak_time=outlook.peak_time.isoformat() if outlook.peak_time else None,
-            hours=[
-                {"time": h.time.isoformat(), "speed_mph": round(h.speed_mph, 1), "gust_mph": round(h.gust_mph, 1)}
-                for h in outlook.hours
+            forecast=[
+                {"time": r.time.isoformat(), "speed_mph": round(r.speed_mph, 1), "gust_mph": round(r.gust_mph, 1)}
+                for r in outlook.readings
             ],
         )
     return status

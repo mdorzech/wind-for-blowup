@@ -7,8 +7,9 @@ from datetime import datetime, timedelta, timezone
 from windguard.config import Config, Device
 from windguard.govee import GoveeError
 from windguard.notify import NotifyError
-from windguard.weather import HourWind, Outlook
+from windguard.weather import Outlook, WindReading
 
+# 18:10 UTC. Forecast steps in make_outlook are 18:00, 18:15, 18:30, 18:45, ...
 NOW = datetime(2026, 12, 1, 18, 10, tzinfo=timezone.utc)
 PLUG_A = Device("H5080", "AA:BB:CC:DD:EE:FF:00:11")
 PLUG_B = Device("H5080", "11:00:FF:EE:DD:CC:BB:AA")
@@ -21,6 +22,7 @@ def make_config(**overrides) -> Config:
         gust_threshold_mph=20.0,
         resume_below_mph=17.0,
         lookahead_hours=3,
+        lead_minutes=30,
         calm_minutes=30,
         govee_api_key="test-key",
         devices=(PLUG_A,),
@@ -33,13 +35,13 @@ def make_config(**overrides) -> Config:
 
 
 def make_outlook(current_gust: float, *forecast_gusts: float) -> Outlook:
-    """Outlook with the given current gust and one forecast hour per extra value."""
+    """Outlook with the given current gust and one 15-minute step per extra value (from 18:00)."""
     start = NOW.replace(minute=0)
-    hours = tuple(
-        HourWind(start + timedelta(hours=i), gust * 0.6, gust)
+    readings = tuple(
+        WindReading(start + timedelta(minutes=15 * i), gust * 0.6, gust)
         for i, gust in enumerate(forecast_gusts or (current_gust,))
     )
-    return Outlook(current_gust * 0.6, current_gust, hours, utc_offset_seconds=-6 * 3600)
+    return Outlook(current_gust * 0.6, current_gust, readings, utc_offset_seconds=-6 * 3600)
 
 
 class FakePlug:
