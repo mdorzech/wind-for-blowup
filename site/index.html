@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Inflatable wind monitor</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --text: #17202a; --muted: #5b6875; --line: #d9dfe5;
+    --ok: #1b7f4b; --ok-bg: #e3f4ea; --hold: #9a5b00; --hold-bg: #fdf0d5;
+    --error: #b3261e; --error-bg: #fbe4e2; --bar: #5b8def; --bar-over: #d9730d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12171c; --card: #1c232b; --text: #e8edf2; --muted: #9aa7b4; --line: #2e3842;
+      --ok: #6fd39b; --ok-bg: #173526; --hold: #f2c063; --hold-bg: #3a2c10;
+      --error: #ff9a92; --error-bg: #40201e; --bar: #7aa2f7; --bar-over: #f0a04b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.15rem; margin: 8px 0 16px; }
+  h2 { font-size: 1rem; margin: 0 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 16px; margin-bottom: 16px; }
+  .banner { border-left: 6px solid var(--muted); }
+  .banner.ok { background: var(--ok-bg); border-color: var(--ok); }
+  .banner.hold { background: var(--hold-bg); border-color: var(--hold); }
+  .banner.error { background: var(--error-bg); border-color: var(--error); }
+  .headline { font-size: 1.4rem; font-weight: 700; margin: 0; }
+  .banner.ok .headline { color: var(--ok); }
+  .banner.hold .headline { color: var(--hold); }
+  .banner.error .headline { color: var(--error); }
+  .detail { margin: 4px 0 0; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+  .stats div { padding: 8px 4px; }
+  .num { font-size: 1.6rem; font-weight: 700; display: block; }
+  .label, .muted { color: var(--muted); font-size: 0.875rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 4px; border-top: 1px solid var(--line); font-weight: 400; }
+  thead th { border-top: 0; color: var(--muted); font-size: 0.875rem; }
+  td.bar { width: 45%; }
+  .track { background: var(--line); border-radius: 4px; height: 10px; overflow: hidden; }
+  .fill { background: var(--bar); height: 100%; }
+  .fill.over { background: var(--bar-over); }
+  tr.over td { font-weight: 700; }
+  ul { margin: 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Inflatable wind monitor</h1>
+
+  <section id="banner" class="card banner" role="status" aria-live="polite">
+    <p id="headline" class="headline">Loading&hellip;</p>
+    <p id="detail" class="detail"></p>
+  </section>
+
+  <section id="wind" class="card" hidden>
+    <h2>Wind</h2>
+    <div class="stats">
+      <div><span id="now-speed" class="num"></span><span class="label">wind now (mph)</span></div>
+      <div><span id="now-gust" class="num"></span><span class="label">gusts now (mph)</span></div>
+      <div><span id="peak" class="num"></span><span class="label" id="peak-label">peak gust (mph)</span></div>
+    </div>
+    <p class="muted" id="limit"></p>
+    <table id="hours" hidden>
+      <caption class="muted" style="text-align:left">Forecast for the hours being watched</caption>
+      <thead><tr><th scope="col">Hour</th><th scope="col">Wind</th><th scope="col">Gusts</th><th scope="col"><span class="muted">vs. limit</span></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="problems" class="card" hidden>
+    <h2>Problems</h2>
+    <ul></ul>
+  </section>
+
+  <section class="card">
+    <h2>Activity</h2>
+    <p id="last-action">No actions yet.</p>
+    <p id="checked" class="muted"></p>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var STALE_MINUTES = 60;
+  var byId = function (id) { return document.getElementById(id); };
+  var clock = function (iso) {
+    return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  };
+  var dayClock = function (iso) {
+    return new Date(iso).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+  };
+  var banner = function (level, headline, detail) {
+    byId("banner").className = "card banner " + level;
+    byId("headline").textContent = headline;
+    byId("detail").textContent = detail;
+  };
+
+  function render(s) {
+    var ageMinutes = (Date.now() - new Date(s.checked_at).getTime()) / 60000;
+    if (ageMinutes > STALE_MINUTES) {
+      banner("error", "Monitor has stopped checking",
+        "The last check was " + dayClock(s.checked_at) + ". The inflatables are not being protected.");
+    } else {
+      banner(s.level, s.headline, s.detail);
+    }
+    byId("checked").textContent = "Last checked " + dayClock(s.checked_at) + (s.dry_run ? " (dry run)" : "");
+
+    if (s.current_gust_mph !== null) {
+      byId("wind").hidden = false;
+      byId("now-speed").textContent = Math.round(s.current_speed_mph);
+      byId("now-gust").textContent = Math.round(s.current_gust_mph);
+      byId("peak").textContent = Math.round(s.peak_gust_mph);
+      byId("peak-label").textContent = "peak gust, next " + s.lookahead_hours + " h (mph)";
+      byId("limit").textContent = "Shut-off limit: " + s.threshold_mph + " mph gusts.";
+      var body = byId("hours").querySelector("tbody");
+      var scale = Math.max(s.threshold_mph * 1.5, s.peak_gust_mph);
+      (s.hours || []).forEach(function (h) {
+        var over = h.gust_mph >= s.threshold_mph;
+        var row = body.insertRow();
+        if (over) { row.className = "over"; }
+        row.insertCell().textContent = clock(h.time);
+        row.insertCell().textContent = Math.round(h.speed_mph) + " mph";
+        row.insertCell().textContent = Math.round(h.gust_mph) + " mph" + (over ? " (over limit)" : "");
+        var cell = row.insertCell();
+        cell.className = "bar";
+        var track = document.createElement("div");
+        track.className = "track";
+        track.setAttribute("aria-hidden", "true");
+        var fill = document.createElement("div");
+        fill.className = "fill" + (over ? " over" : "");
+        fill.style.width = Math.min(100, (h.gust_mph / scale) * 100) + "%";
+        track.appendChild(fill);
+        cell.appendChild(track);
+      });
+      byId("hours").hidden = !(s.hours && s.hours.length);
+    }
+
+    if (s.problems && s.problems.length) {
+      byId("problems").hidden = false;
+      var list = byId("problems").querySelector("ul");
+      s.problems.forEach(function (p) {
+        var item = document.createElement("li");
+        item.textContent = p;
+        list.appendChild(item);
+      });
+    }
+    if (s.last_action) {
+      byId("last-action").textContent = s.last_action + " (" + dayClock(s.last_action_at) + ")";
+    }
+  }
+
+  fetch("status.json", { cache: "no-store" })
+    .then(function (response) {
+      if (response.status === 404) { return null; }
+      if (!response.ok) { throw new Error("HTTP " + response.status); }
+      return response.json();
+    })
+    .then(function (status) {
+      if (status === null) {
+        banner("", "No checks yet", "The first scheduled wind check has not run.");
+      } else {
+        render(status);
+      }
+    })
+    .catch(function () {
+      banner("error", "Could not load status", "Check your connection and reload the page.");
+    });
+})();
+</script>
+</body>
+</html>
