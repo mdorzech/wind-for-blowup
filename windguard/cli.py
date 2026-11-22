@@ -14,6 +14,7 @@ from typing import Sequence
 from . import __version__
 from .config import ConfigError, govee_api_key, load_config, load_dotenv
 from .govee import GoveeClient, GoveeError
+from .history import add_check, load_history, save_history
 from .monitor import run_check
 from .notify import Notifier, NotifyError
 from .state import load_state, save_json, save_state
@@ -34,6 +35,7 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("--config", type=Path, default=Path("config.toml"))
     check.add_argument("--state", type=Path, default=Path("public/state.json"))
     check.add_argument("--status", type=Path, default=Path("public/status.json"))
+    check.add_argument("--history", type=Path, default=Path("public/history.json"))
     check.add_argument("--dry-run", action="store_true", help="switch nothing, notify nobody, save no state")
 
     sub.add_parser("devices", help="list your Govee devices and the value to use in GOVEE_DEVICES")
@@ -77,6 +79,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
     if not args.dry_run:
         save_state(args.state, result.state)
         save_json(args.status, result.status)
+        save_history(args.history, add_check(load_history(args.history), result.status, now))
     summary = _summary(result.status)
     print(summary)
     step_summary = os.environ.get("GITHUB_STEP_SUMMARY")

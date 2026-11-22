@@ -391,7 +391,8 @@ class CliTests(TempDirTest):
     def check_args(self, *extra):
         return ("check", "--config", str(self.write("config.toml", "")),
                 "--state", str(self.dir / "public" / "state.json"),
-                "--status", str(self.dir / "public" / "status.json"), *extra)
+                "--status", str(self.dir / "public" / "status.json"),
+                "--history", str(self.dir / "public" / "history.json"), *extra)
 
     def test_check_end_to_end_with_faked_network(self):
         sent = []
@@ -423,6 +424,9 @@ class CliTests(TempDirTest):
         status = json.loads((self.dir / "public" / "status.json").read_text())
         self.assertTrue(state["hold"])
         self.assertEqual(status["peak_gust_mph"], 31)
+        history = json.loads((self.dir / "public" / "history.json").read_text())
+        self.assertEqual(len(history["checks"]), 1)
+        self.assertEqual(history["events"][0]["text"], "Switched inflatables off for wind")
 
     def test_config_problem_exits_2_with_message_and_no_traceback(self):
         code, _, err = self.run_cli(*self.check_args(), env={})

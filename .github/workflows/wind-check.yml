@@ -30,6 +30,7 @@ jobs:
           mkdir -p public
           if git fetch --quiet --depth=1 origin status 2>/dev/null; then
             git show FETCH_HEAD:state.json > public/state.json 2>/dev/null || rm -f public/state.json
+            git show FETCH_HEAD:history.json > public/history.json 2>/dev/null || rm -f public/history.json
           fi
 
       - name: Check wind
