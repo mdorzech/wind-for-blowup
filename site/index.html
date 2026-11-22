@@ -50,6 +50,7 @@
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; }
   body {
     background: var(--bg); color: var(--ink);
@@ -74,6 +75,18 @@
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
   .run-now { flex-basis: 100%; margin: 0; }
   .run-now a { color: var(--accent); }
+  .linkish { font: inherit; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+  .linkish:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .setup { display: grid; gap: 10px; }
+  .setup p { margin: 0; max-width: 65ch; }
+  .setup a { color: var(--accent); }
+  .steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+  .setup-form { display: grid; gap: 8px; max-width: 520px; }
+  .setup-form input { font: 0.95rem var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                      border-radius: 6px; padding: 8px 10px; width: 100%; min-width: 0; }
+  .setup-form input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+  .problem-text { color: var(--error); margin: 0; min-height: 1em; }
   .btn { display: inline-flex; align-items: center; gap: 6px; font: 600 0.85rem var(--font-body); color: var(--ink);
          background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
   .btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -187,11 +200,33 @@
       </button>
     </div>
     <p class="run-now small muted">
-      Page updated <span id="fetched">&ndash;</span>. Checks run every 5 minutes;
-      <a href="https://github.com/mdorzech/wind-for-blowup/actions/workflows/wind-check.yml" target="_blank" rel="noopener">run a check now on GitHub</a>
-      (owner only: press <em>Run workflow</em>).
+      Page updated <span id="fetched">&ndash;</span>. Checks run every 5 minutes.
+      <span id="mode-text"></span>
+      <button type="button" id="setup-open" class="linkish">Make Refresh run a new check</button>
     </p>
   </header>
+
+  <section id="setup" class="panel setup" hidden aria-labelledby="setup-title">
+    <h2 id="setup-title">Run a check when you tap Refresh</h2>
+    <p class="small">Refresh can start a wind check on GitHub if this device has a GitHub key that may run this repository's checks. The key is saved only in this browser, on this device. It is never published.</p>
+    <ol class="small steps">
+      <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub: new fine-grained token</a>.</li>
+      <li>Name it <em>Wind Watch refresh</em> and pick an expiration.</li>
+      <li>Repository access: <em>Only select repositories</em>, then <em>wind-for-blowup</em>.</li>
+      <li>Permissions: <em>Actions</em> &rarr; <em>Read and write</em> and <em>Contents</em> &rarr; <em>Read-only</em>. Nothing else.</li>
+      <li>Generate it, copy it, and paste it below.</li>
+    </ol>
+    <form id="setup-form" class="setup-form" autocomplete="off">
+      <label for="setup-token" class="small">GitHub key</label>
+      <input id="setup-token" type="password" inputmode="text" spellcheck="false" autocapitalize="off" placeholder="github_pat_…">
+      <div class="setup-actions">
+        <button type="submit" class="btn">Save on this device</button>
+        <button type="button" id="setup-remove" class="btn" hidden>Remove key</button>
+        <button type="button" id="setup-cancel" class="linkish">Cancel</button>
+      </div>
+      <p id="setup-msg" class="small problem-text" role="alert"></p>
+    </form>
+  </section>
 
   <section id="banner" class="banner" role="status" aria-live="polite">
     <span id="chip" class="chip">&hellip;</span>
@@ -542,8 +577,28 @@
     renderLog(state.history);
   }
 
-  function getJSON(name) {
-    return fetch(name + "?t=" + Date.now(), { cache: "no-store" }).then(function (r) {
+  /* ---------- loading data ------------------------------------------ */
+  var REPO = "mdorzech/wind-for-blowup";
+  var API = "https://api.github.com/repos/" + REPO;
+  var TOKEN_KEY = "wind-github-key";
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+
+  function readToken() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
+  function writeToken(v) {
+    try { if (v) { localStorage.setItem(TOKEN_KEY, v); } else { localStorage.removeItem(TOKEN_KEY); } return true; }
+    catch (e) { return false; }
+  }
+
+  // Published copy (GitHub Pages, can lag a minute behind) or, after a one-tap check,
+  // the status branch itself through the GitHub API (current the moment the check ends).
+  function getJSON(name, viaApi) {
+    var request = viaApi
+      ? fetch(API + "/contents/" + name + "?ref=status&t=" + Date.now(), {
+          cache: "no-store",
+          headers: { Accept: "application/vnd.github.raw+json", Authorization: "Bearer " + readToken() }
+        })
+      : fetch(name + "?t=" + Date.now(), { cache: "no-store" });
+    return request.then(function (r) {
       if (r.status === 404) { return null; }
       if (!r.ok) { throw new Error("HTTP " + r.status); }
       return r.json();
@@ -555,25 +610,12 @@
     $("fetched").textContent = fetchedAt ? ago(fetchedAt) + " (" + fmtTime(fetchedAt) + ")" : "–";
   }
 
-  function load(manual) {
-    var btn = $("refresh");
-    if (btn.disabled) { return Promise.resolve(); }
-    btn.disabled = true;
-    btn.classList.add("busy");
-    $("refresh-label").textContent = "Refreshing…";
-    var before = state.status && state.status.checked_at;
-    return Promise.all([getJSON("status.json"), getJSON("history.json").catch(function () { return null; })])
+  function fetchData(viaApi) {
+    return Promise.all([getJSON("status.json", viaApi), getJSON("history.json", viaApi).catch(function () { return null; })])
       .then(function (res) {
         state.status = res[0]; state.history = res[1];
         fetchedAt = new Date();
         showFetched();
-        if (manual) {
-          var fresh = state.status && state.status.checked_at !== before;
-          $("refresh-label").textContent = fresh ? "Updated" : "No newer check yet";
-          setTimeout(function () { $("refresh-label").textContent = "Refresh"; }, 2500);
-        } else {
-          $("refresh-label").textContent = "Refresh";
-        }
         if (!state.status) {
           $("banner").className = "banner";
           $("chip").textContent = "Waiting";
@@ -583,21 +625,150 @@
           return;
         }
         renderAll();
-      })
-      .catch(function () {
-        $("health").className = "health stale";
-        $("health-text").textContent = "Could not load the latest check. Retrying every minute.";
-        $("refresh-label").textContent = "Refresh failed, try again";
-      })
-      .then(function () {
-        btn.disabled = false;
-        btn.classList.remove("busy");
       });
   }
-  $("refresh").addEventListener("click", function () { load(true); });
-  document.addEventListener("visibilitychange", function () {
-    if (document.visibilityState === "visible" && fetchedAt && Date.now() - fetchedAt > 30000) { load(false); }
+
+  var busy = false;
+  function setButton(text, spinning) {
+    $("refresh-label").textContent = text;
+    $("refresh").disabled = !!spinning;
+    $("refresh").classList.toggle("busy", !!spinning);
+  }
+  function settle(text) {
+    setButton(text, false);
+    busy = false;
+    setTimeout(function () { if (!busy) { $("refresh-label").textContent = "Refresh"; } }, 4000);
+  }
+
+  // Background reload of the published copy.
+  function load() {
+    if (busy) { return; }
+    fetchData(false).catch(function () {
+      $("health").className = "health stale";
+      $("health-text").textContent = "Could not load the latest check. Retrying every minute.";
+    });
+  }
+
+  // Refresh without a key: reload the published copy.
+  function reloadOnly() {
+    busy = true;
+    setButton("Refreshing…", true);
+    var before = state.status && state.status.checked_at;
+    fetchData(false)
+      .then(function () { settle(state.status && state.status.checked_at !== before ? "Updated" : "No newer check yet"); })
+      .catch(function () { settle("Refresh failed, try again"); });
+  }
+
+  function github(method, path, body) {
+    return fetch(API + path, {
+      method: method,
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: "Bearer " + readToken(),
+        "X-GitHub-Api-Version": "2022-11-28"
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  }
+
+  // Refresh with a key: start a wind check on GitHub, wait for it, then show its result.
+  function runCheckNow() {
+    busy = true;
+    setButton("Starting a check…", true);
+    var startedAt = Date.now();
+    github("POST", "/actions/workflows/wind-check.yml/dispatches", { ref: "main" })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403 || r.status === 404) { throw new Error("key"); }
+        if (!r.ok) { throw new Error("start"); }
+        setButton("Checking the wind…", true);
+        return waitForRun(startedAt);
+      })
+      .then(function (run) {
+        if (!run) { throw new Error("slow"); }
+        if (run.conclusion !== "success") { throw new Error("failed"); }
+        setButton("Loading result…", true);
+        return fetchData(true).catch(function () { return fetchData(false); });
+      })
+      .then(function () { settle("Checked just now"); })
+      .catch(function (err) {
+        var why = err && err.message;
+        if (why === "key") {
+          settle("GitHub key rejected");
+          showSetup(true, "GitHub did not accept the saved key. It may have expired or lack the Actions permission. Paste a new one.");
+        } else if (why === "slow") { settle("Still running, refresh again shortly"); }
+        else if (why === "failed") { settle("The check failed"); fetchData(false).catch(function () {}); }
+        else { settle("Could not reach GitHub"); }
+      });
+  }
+
+  function waitForRun(startedAt) {
+    var deadline = startedAt + 3 * 60 * 1000;
+    function poll() {
+      if (Date.now() > deadline) { return Promise.resolve(null); }
+      return sleep(4000)
+        .then(function () { return github("GET", "/actions/workflows/wind-check.yml/runs?event=workflow_dispatch&per_page=5"); })
+        .then(function (r) { return r.ok ? r.json() : { workflow_runs: [] }; })
+        .then(function (data) {
+          var mine = (data.workflow_runs || []).filter(function (x) {
+            return new Date(x.created_at).getTime() >= startedAt - 20000;
+          });
+          var run = mine[mine.length - 1];  // runs are newest first; the oldest match is ours
+          if (run && run.status === "completed") { return run; }
+          return poll();
+        });
+    }
+    return poll();
+  }
+
+  $("refresh").addEventListener("click", function () {
+    if (busy) { return; }
+    if (readToken()) { runCheckNow(); } else { reloadOnly(); }
   });
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && fetchedAt && Date.now() - fetchedAt > 30000) { load(); }
+  });
+
+  /* ---------- one-tap check setup ------------------------------------- */
+  function showSetup(open, message) {
+    $("setup").hidden = !open;
+    $("setup-msg").textContent = message || "";
+    if (open) { $("setup-token").focus(); }
+  }
+  function updateModeText() {
+    var hasKey = !!readToken();
+    $("mode-text").textContent = hasKey
+      ? "Refresh runs a new wind check on GitHub (about a minute)."
+      : "Refresh reloads the latest check.";
+    $("setup-open").textContent = hasKey ? "Change or remove the GitHub key" : "Make Refresh run a new check";
+    $("setup-remove").hidden = !hasKey;
+  }
+  $("setup-open").addEventListener("click", function () { showSetup($("setup").hidden); });
+  $("setup-cancel").addEventListener("click", function () { $("setup-token").value = ""; showSetup(false); });
+  $("setup-remove").addEventListener("click", function () {
+    writeToken("");
+    $("setup-token").value = "";
+    showSetup(false);
+    updateModeText();
+  });
+  $("setup-form").addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    var value = $("setup-token").value.trim();
+    if (!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(value)) {
+      $("setup-msg").textContent = "That does not look like a GitHub key. It starts with github_pat_.";
+      return;
+    }
+    if (!writeToken(value)) {
+      $("setup-msg").textContent = "This browser would not save it (private browsing?). Try a normal window.";
+      return;
+    }
+    $("setup-token").value = "";
+    showSetup(false);
+    updateModeText();
+    $("refresh-label").textContent = "Saved. Tap to run a check";
+  });
+  updateModeText();
+
   setInterval(function () {
     showFetched();
     if (state.status) { renderStatus(state.status); }
