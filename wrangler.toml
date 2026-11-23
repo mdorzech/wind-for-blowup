@@ -16,7 +16,7 @@ crons = ["*/5 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "wind-watch"
-database_id = "REPLACE_WITH_DATABASE_ID"
+database_id = "558d542e-b3a9-4d0d-8737-08db22a23888"
 
 [observability]
 enabled = true
@@ -35,4 +35,4 @@ LOOKAHEAD_HOURS = "3"
 CALM_MINUTES = "30"
 NTFY_SERVER = "https://ntfy.sh"
 # Tapping a notification opens this page.
-STATUS_PAGE_URL = ""
+STATUS_PAGE_URL = "https://wind-watch.wind-watch.workers.dev/"
