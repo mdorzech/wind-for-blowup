@@ -18,4 +18,7 @@
 | 2026-11-22 | 15-minute forecast steps; "high wind time" = first step at or above the threshold | Hourly steps too coarse for a 30-minute lead |
 | 2026-11-22 | Once held, stay held while the threshold appears anywhere in the 3 h window | Avoids an all-clear between two gusty spells |
 | 2026-11-22 | Repository public; wind check every 5 minutes; status page on GitHub Pages | Owner's choice; 30-min lead needs frequent runs, which exceed private free minutes |
+| 2026-11-22 | Moved to Cloudflare Workers (cron every 5 min, D1 storage, dashboard on the Worker); GitHub runs tests only | GitHub's schedule never started for this repository; owner chose Cloudflare |
+| 2026-11-22 | Refresh is open to anyone with the address, limited to one check a minute | A check can only turn the plug off; avoids putting keys on phones |
+| 2026-11-22 | Rewritten in JavaScript; Python version removed | Workers run JavaScript; one implementation to maintain |
 | 2026-11-22 | Forecast outage switches nothing | Not specified by the owner; simplest safe behaviour, documented as a limitation |

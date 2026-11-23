@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0 - 2026-11-22
+
+- Runs on Cloudflare Workers instead of GitHub Actions: checks every 5 minutes on time.
+- Dashboard served by the Worker; Refresh runs a check directly (once a minute at most).
+- State and 7-day history in Cloudflare D1. Python version removed; setup tools are npm scripts.
+- Dashboard shows whether the plug is on, a forecast chart, history and an activity log.
+- Longer back-off when the forecast service rate-limits.
+
 ## 1.1.0 - 2026-11-22
 
 - Switch off a set time (`lead_minutes`, default 30) before gusts are forecast to
