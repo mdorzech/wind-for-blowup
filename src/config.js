@@ -62,6 +62,16 @@ export function loadConfig(env) {
   if (resume < 0 || resume > threshold) {
     throw new ConfigError("RESUME_BELOW_MPH must be between 0 and the gust threshold");
   }
+  // Optional sustained-wind limit: empty means only gusts count.
+  const sustained = text(env, "SUSTAINED_THRESHOLD_MPH") === "" ? null : number(env, "SUSTAINED_THRESHOLD_MPH");
+  let resumeSustained = null;
+  if (sustained !== null) {
+    if (sustained < 1 || sustained > 150) throw new ConfigError("SUSTAINED_THRESHOLD_MPH must be between 1 and 150");
+    resumeSustained = number(env, "RESUME_BELOW_SUSTAINED_MPH", Math.max(sustained - 3, 0));
+    if (resumeSustained < 0 || resumeSustained > sustained) {
+      throw new ConfigError("RESUME_BELOW_SUSTAINED_MPH must be between 0 and the sustained threshold");
+    }
+  }
   const lookahead = whole(number(env, "LOOKAHEAD_HOURS", 3), "LOOKAHEAD_HOURS", 1, 48);
   const lead = whole(number(env, "LEAD_MINUTES", 30), "LEAD_MINUTES", 0, lookahead * 60);
   const calm = whole(number(env, "CALM_MINUTES", 30), "CALM_MINUTES", 0, 1440);
@@ -80,6 +90,8 @@ export function loadConfig(env) {
     longitude,
     gustThresholdMph: threshold,
     resumeBelowMph: resume,
+    sustainedThresholdMph: sustained,
+    resumeBelowSustainedMph: resumeSustained,
     lookaheadHours: lookahead,
     leadMinutes: lead,
     calmMinutes: calm,

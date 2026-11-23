@@ -31,6 +31,7 @@
     --hold: #b34a12; --hold-bg: #fbe3d6;
     --error: #b3261e; --error-bg: #fbe2e0;
     --limit: #c2410c;
+    --wind: #0f766e;            /* sustained wind line */
     --hold-band: rgba(179, 74, 18, 0.12);
     --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
     --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -42,7 +43,7 @@
       --accent: #6aa8ea; --accent-soft: rgba(106, 168, 234, 0.18); --peak: #61758b;
       --ok: #6ccf98; --ok-bg: #15301f; --watch: #f0b85a; --watch-bg: #33270f;
       --hold: #f59a62; --hold-bg: #3a2113; --error: #ff958c; --error-bg: #3b1d1b;
-      --limit: #fb8a4c; --hold-band: rgba(245, 154, 98, 0.13);
+      --limit: #fb8a4c; --hold-band: rgba(245, 154, 98, 0.13); --wind: #4fd1c5;
       color-scheme: dark;
     }
   }
@@ -51,7 +52,7 @@
     --accent: #6aa8ea; --accent-soft: rgba(106, 168, 234, 0.18); --peak: #61758b;
     --ok: #6ccf98; --ok-bg: #15301f; --watch: #f0b85a; --watch-bg: #33270f;
     --hold: #f59a62; --hold-bg: #3a2113; --error: #ff958c; --error-bg: #3b1d1b;
-    --limit: #fb8a4c; --hold-band: rgba(245, 154, 98, 0.13);
+    --limit: #fb8a4c; --hold-band: rgba(245, 154, 98, 0.13); --wind: #4fd1c5;
     color-scheme: dark;
   }
 
@@ -139,6 +140,8 @@
   .swatch { width: 14px; height: 3px; border-radius: 2px; background: var(--accent); }
   .swatch.peak { background: var(--peak); }
   .swatch.limit { background: none; border-top: 2px dashed var(--limit); height: 0; }
+  .swatch.wind { background: var(--wind); }
+  .swatch.wind-limit { background: none; border-top: 2px dotted var(--wind); height: 0; }
   .swatch.band { height: 10px; background: var(--hold-band); border: 1px solid var(--hold); opacity: 0.8; }
 
   .chart { position: relative; width: 100%; }
@@ -147,6 +150,10 @@
   .chart .gridline { stroke: var(--grid); stroke-width: 1; }
   .chart .limit { stroke: var(--limit); stroke-width: 1.5; stroke-dasharray: 5 4; }
   .chart .limit-label { fill: var(--limit); font: 600 11px var(--font-body); }
+  .chart .limit.wind-limit { stroke: var(--wind); stroke-dasharray: 2 3; }
+  .chart .limit-label.wind-limit { fill: var(--wind); }
+  .chart .wind { fill: none; stroke: var(--wind); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+  .chart .over-dot.wind-over { fill: var(--wind); }
   .chart .gust { fill: none; stroke: var(--accent); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
   .chart .gust-area { fill: var(--accent-soft); stroke: none; }
   .chart .peak { fill: none; stroke: var(--peak); stroke-width: 1.5; stroke-dasharray: 2 3; }
@@ -221,8 +228,10 @@
     <div class="panel-head">
       <h2 id="forecast-title">Forecast being watched</h2>
       <div class="legend">
-        <span class="key"><span class="swatch" aria-hidden="true"></span>Gusts, 15-min steps</span>
-        <span class="key"><span class="swatch limit" aria-hidden="true"></span>Shut-off limit</span>
+        <span class="key"><span class="swatch" aria-hidden="true"></span>Gusts</span>
+        <span class="key"><span class="swatch wind" aria-hidden="true"></span>Sustained wind</span>
+        <span class="key"><span class="swatch limit" aria-hidden="true"></span>Gust limit</span>
+        <span class="key" id="wind-limit-key"><span class="swatch wind-limit" aria-hidden="true"></span>Wind limit</span>
         <span class="key"><span class="swatch band" aria-hidden="true"></span>Inflatables off</span>
       </div>
     </div>
@@ -308,7 +317,9 @@
     var m = { top: 14, right: 12, bottom: 26, left: 32 };
     var iw = width - m.left - m.right, ih = height - m.top - m.bottom;
     var t0 = opt.from.getTime(), t1 = opt.to.getTime();
-    var yMax = niceMax(Math.max(opt.limit * 1.25, opt.maxValue || 0));
+    var limits = opt.limits || [];
+    var topLimit = limits.reduce(function (a, l) { return Math.max(a, l.value); }, 0);
+    var yMax = niceMax(Math.max(topLimit * 1.25, opt.maxValue || 0));
     var x = function (t) { return m.left + ((t - t0) / (t1 - t0)) * iw; };
     var y = function (v) { return m.top + ih - (v / yMax) * ih; };
 
@@ -350,10 +361,13 @@
       xl.textContent = text;
     }
 
-    // limit line
-    el("line", { class: "limit", x1: m.left, x2: m.left + iw, y1: y(opt.limit), y2: y(opt.limit) }, svg);
-    el("text", { class: "limit-label", x: m.left + iw, y: y(opt.limit) - 5, "text-anchor": "end" }, svg)
-      .textContent = "Limit " + round(opt.limit) + " mph";
+    // limit lines
+    limits.forEach(function (l) {
+      var extra = l.cls ? " " + l.cls : "";
+      el("line", { class: "limit" + extra, x1: m.left, x2: m.left + iw, y1: y(l.value), y2: y(l.value) }, svg);
+      el("text", { class: "limit-label" + extra, x: m.left + iw, y: y(l.value) - 5, "text-anchor": "end" }, svg)
+        .textContent = l.label + " " + round(l.value) + " mph";
+    });
 
     var plot = el("g", { "clip-path": "url(#" + opt.id + "-clip)" }, svg);
     (opt.series || []).forEach(function (s) {
@@ -367,8 +381,10 @@
         el("path", { class: "gust-area", d: path + "L" + x(pts[pts.length - 1].t) + "," + y(0) + "L" + x(pts[0].t) + "," + y(0) + "Z" }, plot);
       }
       el("path", { class: s.cls, d: path }, plot);
-      if (s.markOver) {
-        pts.forEach(function (p) { if (p.v >= opt.limit) { el("circle", { class: "over-dot", cx: x(p.t), cy: y(p.v), r: 3 }, plot); } });
+      if (s.overAt !== undefined && s.overAt !== null) {
+        pts.forEach(function (p) {
+          if (p.v >= s.overAt) { el("circle", { class: "over-dot" + (s.overCls ? " " + s.overCls : ""), cx: x(p.t), cy: y(p.v), r: 3 }, plot); }
+        });
       }
       if (s.endDot) {
         var last = pts[pts.length - 1];
@@ -442,12 +458,19 @@
       if (sub !== null) { box.querySelector(".sub").textContent = sub; }
       box.classList.toggle("over", !!over);
     }
+    var windLimit = s.sustained_threshold_mph;  // null when only gusts count
+    var hasWindLimit = windLimit !== null && windLimit !== undefined;
     setReading("r-gust", s.current_gust_mph, null, s.current_gust_mph >= limit);
-    setReading("r-wind", s.current_speed_mph, null, false);
-    var peakSub = "mph, next " + s.lookahead_hours + " h";
-    if (s.peak_time) { peakSub = "mph at " + fmtTime(new Date(s.peak_time)); }
-    setReading("r-peak", s.peak_gust_mph, peakSub, s.peak_gust_mph >= limit);
-    setReading("r-limit", limit, "mph gusts, off " + s.lead_minutes + " min early", false);
+    setReading("r-wind", s.current_speed_mph, null, hasWindLimit && s.current_speed_mph >= windLimit);
+    var peakSub = "mph gusts, next " + s.lookahead_hours + " h";
+    if (s.peak_time) { peakSub = "mph gusts at " + fmtTime(new Date(s.peak_time)); }
+    if (s.peak_speed_mph !== null && s.peak_speed_mph !== undefined) { peakSub += "; wind up to " + round(s.peak_speed_mph); }
+    setReading("r-peak", s.peak_gust_mph, peakSub,
+      s.peak_gust_mph >= limit || (hasWindLimit && s.peak_speed_mph >= windLimit));
+    setReading("r-limit", limit, hasWindLimit
+      ? "mph gusts or " + round(windLimit) + " mph wind; off " + s.lead_minutes + " min early"
+      : "mph gusts, off " + s.lead_minutes + " min early", false);
+    $("wind-limit-key").hidden = !hasWindLimit;
 
     var plugBox = $("r-plug");
     var on = s.plug_on;
@@ -463,8 +486,11 @@
     }
     plugBox.querySelector(".sub").textContent = plugSub;
 
-    $("rule-off").textContent = s.lead_minutes + " minutes before gusts reach " + round(limit) + " mph";
-    $("rule-clear").textContent = "Gusts stay under " + round(s.resume_below_mph) + " mph for the next " + s.lookahead_hours + " h";
+    $("rule-off").textContent = s.lead_minutes + " minutes before " +
+      (hasWindLimit ? "wind reaches " + round(windLimit) + " mph or " : "") + "gusts reach " + round(limit) + " mph";
+    $("rule-clear").textContent = "Gusts stay under " + round(s.resume_below_mph) + " mph" +
+      (hasWindLimit ? " and wind under " + round(s.resume_below_sustained_mph) + " mph" : "") +
+      " for the next " + s.lookahead_hours + " h";
   }
 
   function renderForecast(s) {
@@ -478,11 +504,17 @@
     } else if (s.switch_off_at) {
       bands.push({ from: new Date(s.switch_off_at).getTime(), to: rows[rows.length - 1].t, label: "Off from " + fmtTime(new Date(s.switch_off_at)) });
     }
+    var windLimit = s.sustained_threshold_mph;
+    var limits = [{ value: s.threshold_mph, label: "Gust limit" }];
+    if (windLimit !== null && windLimit !== undefined) { limits.push({ value: windLimit, label: "Wind limit", cls: "wind-limit" }); }
     drawChart(box, {
-      id: "fc", label: "Forecast gusts for the next " + s.lookahead_hours + " hours",
+      id: "fc", label: "Forecast wind and gusts for the next " + s.lookahead_hours + " hours",
       from: new Date(rows[0].t), to: new Date(rows[rows.length - 1].t),
-      limit: s.threshold_mph, maxValue: d3max(rows), now: now, bands: bands,
-      series: [{ points: rows, cls: "gust", area: true, markOver: true }],
+      limits: limits, maxValue: d3max(rows), now: now, bands: bands,
+      series: [
+        { points: rows, cls: "gust", area: true, overAt: s.threshold_mph },
+        { points: rows.map(function (r) { return { t: r.t, v: r.w, w: r.w }; }), cls: "wind", overAt: windLimit, overCls: "wind-over" }
+      ],
       tip: function (p) { return fmtTime(new Date(p.t)) + " · gusts " + round(p.v) + " mph, wind " + round(p.w) + " mph"; }
     });
   }
@@ -509,7 +541,7 @@
     var gap = 40 * 60000;
     drawChart(box, {
       id: "hist", label: "Gusts over the past " + (state.rangeHours === 24 ? "24 hours" : "7 days"),
-      from: new Date(from), to: new Date(to), limit: s ? s.threshold_mph : 20, maxValue: maxV, bands: bands,
+      from: new Date(from), to: new Date(to), limits: [{ value: s ? s.threshold_mph : 20, label: "Gust limit" }], maxValue: maxV, bands: bands,
       series: [
         { points: checks, cls: "gust", maxGapMs: gap, endDot: true },
         { points: checks.map(function (c) { return { t: c.t, v: c.peak }; }), cls: "peak", maxGapMs: gap }

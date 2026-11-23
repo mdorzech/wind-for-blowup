@@ -3,7 +3,7 @@
 Turns your inflatable decorations off before high wind arrives.
 
 A free Cloudflare Worker checks the 15-minute wind forecast for your home
-(Open-Meteo) every 5 minutes. When gusts are forecast to reach 20 mph, it switches
+(Open-Meteo) every 5 minutes. When sustained wind is forecast to reach 25 mph or gusts 35 mph, it switches
 your Govee smart plug off 30 minutes beforehand (or straight away if it is already
 that windy) and sends a push notification to your phone. When the wind has passed
 you get a second notification, and **you** decide whether to turn the inflatables
@@ -46,9 +46,11 @@ The first scheduled check runs within 5 minutes; tap **Refresh** to run one now.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `GUST_THRESHOLD_MPH` | 20 | Gust speed that counts as high wind |
+| `SUSTAINED_THRESHOLD_MPH` | 25 | Sustained wind that counts as high wind (empty: gusts only) |
+| `GUST_THRESHOLD_MPH` | 35 | Gust speed that counts as high wind |
 | `LEAD_MINUTES` | 30 | Switch off this long before the high wind is forecast |
-| `RESUME_BELOW_MPH` | 17 | Wind counts as passed below this |
+| `RESUME_BELOW_SUSTAINED_MPH` | 22 | Wind counts as passed once sustained wind is below this... |
+| `RESUME_BELOW_MPH` | 32 | ...and gusts are below this |
 | `LOOKAHEAD_HOURS` | 3 | How far ahead to read the forecast; the all-clear needs this whole window calm |
 | `CALM_MINUTES` | 30 | How long it must stay calm before the all-clear |
 

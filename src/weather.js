@@ -60,6 +60,16 @@ export function peakGust(outlook) {
   return Math.max(outlook.currentGust, ...outlook.readings.map((r) => r.gust));
 }
 
+export function peakSpeed(outlook) {
+  return Math.max(outlook.currentSpeed, ...outlook.readings.map((r) => r.speed));
+}
+
+/** Forecast time of the first step for which `isHigh(speed, gust)` is true, if any. */
+export function firstTimeWhere(outlook, isHigh) {
+  const hit = outlook.readings.find((r) => isHigh(r.speed, r.gust));
+  return hit ? hit.time : null;
+}
+
 /** When the peak is expected; null means the peak is the current reading. */
 export function peakTime(outlook) {
   let worst = null;

@@ -10,9 +10,11 @@ import { Notifier, NotifyError } from "../src/notify.js";
 import { fetchOutlook } from "../src/weather.js";
 
 const TOML_DEFAULTS = {
-  GUST_THRESHOLD_MPH: "20",
+  SUSTAINED_THRESHOLD_MPH: "25",
+  GUST_THRESHOLD_MPH: "35",
   LEAD_MINUTES: "30",
-  RESUME_BELOW_MPH: "17",
+  RESUME_BELOW_SUSTAINED_MPH: "22",
+  RESUME_BELOW_MPH: "32",
   LOOKAHEAD_HOURS: "3",
   CALM_MINUTES: "30",
 };

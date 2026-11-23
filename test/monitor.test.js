@@ -30,7 +30,7 @@ describe("windy", () => {
     assert.equal(r.state.hold, true);
     assert.equal(r.state.hold_since, NOW.toISOString());
     assert.deepEqual(r.notifier.titles, ["High wind: inflatables turned off"]);
-    assert.match(r.notifier.sent[0].message, /from about 12:15 PM, peaking at 20 mph/);
+    assert.match(r.notifier.sent[0].message, /High wind \(20 mph gusts\) from about 12:15 PM, peaking at 12 mph wind and 20 mph gusts/);
     assert.equal(r.ok, true);
     assert.equal(r.status.level, "hold");
     assert.equal(r.status.plug_on, false);
@@ -149,6 +149,53 @@ describe("recovery", () => {
   it("restarts the clock if the saved time is damaged", async () => {
     const r = await check({ state: held({ calm_since: "garbage" }), outlook: makeOutlook(5) });
     assert.equal(r.state.calm_since, NOW.toISOString());
+  });
+});
+
+describe("sustained wind limit (25 mph wind or 35 mph gusts)", () => {
+  const limits = { gustThresholdMph: 35, resumeBelowMph: 32, sustainedThresholdMph: 25, resumeBelowSustainedMph: 22 };
+  // Readings with explicit wind speed and gusts, from 18:00 UTC in 15-minute steps.
+  const outlookOf = (current, ...steps) => ({
+    currentSpeed: current[0],
+    currentGust: current[1],
+    readings: steps.map(([speed, gust], i) => ({ time: new Date(Date.parse("2026-12-01T18:00:00Z") + i * 900000), speed, gust })),
+    utcOffsetSeconds: -6 * 3600,
+  });
+
+  it("turns off for sustained wind even when gusts stay under 35", async () => {
+    const r = await check({ ...limits, outlook: outlookOf([10, 15], [12, 18], [26, 30]) });
+    assert.deepEqual(r.plug.offCalls, [PLUG_A]);
+    assert.match(r.notifier.sent[0].message, /High wind \(25 mph wind or 35 mph gusts\) from about 12:15 PM/);
+  });
+
+  it("turns off for gusts even when the wind stays under 25", async () => {
+    const r = await check({ ...limits, outlook: outlookOf([10, 15], [12, 36]) });
+    assert.deepEqual(r.plug.offCalls, [PLUG_A]);
+  });
+
+  it("ignores 28 mph gusts and 20 mph wind, which the old 20 mph gust limit would have caught", async () => {
+    const r = await check({ ...limits, outlook: outlookOf([15, 22], [20, 28], [18, 26]) });
+    assert.deepEqual(r.plug.offCalls, []);
+    assert.equal(r.status.level, "ok");
+    assert.equal(r.status.sustained_threshold_mph, 25);
+    assert.equal(r.status.peak_speed_mph, 20);
+    assert.match(r.status.detail, /Limits: 25 mph wind or 35 mph gusts/);
+  });
+
+  it("acts immediately when the wind is already at 25", async () => {
+    const r = await check({ ...limits, outlook: outlookOf([25, 30], [10, 15]) });
+    assert.deepEqual(r.plug.offCalls, [PLUG_A]);
+    assert.match(r.notifier.sent[0].message, /right now/);
+  });
+
+  it("waits for both wind and gusts to calm before the all-clear", async () => {
+    const calmSince = minutesBefore(30);
+    const windy = await check({ ...limits, state: held({ calm_since: calmSince }), outlook: outlookOf([23, 25], [23, 25]) });
+    assert.equal(windy.state.hold, true, "wind 23 is above the 22 resume level");
+    assert.equal(windy.state.calm_since, null);
+    const calm = await check({ ...limits, state: held({ calm_since: calmSince }), outlook: outlookOf([15, 25], [15, 25]) });
+    assert.equal(calm.state.hold, false);
+    assert.match(calm.notifier.sent[0].message, /Gusts should stay under 32 mph and wind under 22 mph/);
   });
 });
 

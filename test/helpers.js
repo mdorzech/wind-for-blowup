@@ -14,6 +14,8 @@ export function makeConfig(overrides = {}) {
     longitude: -87.5,
     gustThresholdMph: 20,
     resumeBelowMph: 17,
+    sustainedThresholdMph: null,
+    resumeBelowSustainedMph: null,
     lookaheadHours: 3,
     leadMinutes: 30,
     calmMinutes: 30,

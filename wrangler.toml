@@ -24,12 +24,15 @@ enabled = true
 # Settings. Private values (LATITUDE, LONGITUDE, GOVEE_API_KEY, GOVEE_DEVICES,
 # NTFY_TOPIC) are Cloudflare secrets: see README.
 [vars]
-# Gust speed that counts as high wind.
-GUST_THRESHOLD_MPH = "20"
-# Turn the inflatables off this many minutes before gusts are forecast to reach it.
+# High wind: sustained wind at or above SUSTAINED_THRESHOLD_MPH, or gusts at or
+# above GUST_THRESHOLD_MPH. Leave SUSTAINED_THRESHOLD_MPH empty to use gusts only.
+SUSTAINED_THRESHOLD_MPH = "25"
+GUST_THRESHOLD_MPH = "35"
+# Turn the inflatables off this many minutes before high wind is forecast.
 LEAD_MINUTES = "30"
-# The wind counts as passed once gusts stay below this...
-RESUME_BELOW_MPH = "17"
+# The wind counts as passed once wind and gusts both stay below these...
+RESUME_BELOW_SUSTAINED_MPH = "22"
+RESUME_BELOW_MPH = "32"
 # ...for the whole look-ahead window, and have done so for this long.
 LOOKAHEAD_HOURS = "3"
 CALM_MINUTES = "30"

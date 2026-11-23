@@ -54,6 +54,16 @@ describe("config", () => {
     }
   });
 
+  it("reads the optional sustained-wind limit", () => {
+    assert.equal(loadConfig(ENV).sustainedThresholdMph, null);
+    const cfg = loadConfig({ ...ENV, SUSTAINED_THRESHOLD_MPH: "25", GUST_THRESHOLD_MPH: "35" });
+    assert.equal(cfg.sustainedThresholdMph, 25);
+    assert.equal(cfg.resumeBelowSustainedMph, 22);
+    assert.equal(cfg.resumeBelowMph, 32);
+    assert.throws(() => loadConfig({ ...ENV, SUSTAINED_THRESHOLD_MPH: "0" }), /SUSTAINED_THRESHOLD_MPH/);
+    assert.throws(() => loadConfig({ ...ENV, SUSTAINED_THRESHOLD_MPH: "25", RESUME_BELOW_SUSTAINED_MPH: "30" }), /RESUME_BELOW_SUSTAINED_MPH/);
+  });
+
   it("parses several devices", () => {
     assert.deepEqual(parseDevices(" H5080|AA:BB , H5081|CC:DD ,"), [
       { sku: "H5080", device: "AA:BB" },

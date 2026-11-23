@@ -1,7 +1,7 @@
 // One wind check: read the forecast, decide, switch plugs off, notify.
 //
 // The rules, in order:
-//   1. Gusts at or above the threshold now, or forecast to reach it within the lead
+//   1. Wind or gusts at their limit now, or forecast to reach it within the lead
 //      time (default 30 minutes): hold the inflatables off. While holding, the hold
 //      continues as long as the threshold is reached anywhere in the look-ahead
 //      window, and plugs found on are switched off on every run. High wind further
@@ -14,7 +14,7 @@
 
 import { GoveeError } from "./govee.js";
 import { NotifyError } from "./notify.js";
-import { WeatherError, firstTimeAtOrAbove, peakGust, peakTime } from "./weather.js";
+import { WeatherError, firstTimeWhere, peakGust, peakSpeed, peakTime } from "./weather.js";
 
 export function newState() {
   return { hold: false, hold_since: null, calm_since: null, last_action: null, last_action_at: null, alerted: [] };
@@ -140,18 +140,21 @@ export async function runCheck(cfg, previous, now, { getOutlook, plug, notifier,
   }
 
   const peak = peakGust(outlook);
-  const limit = cfg.gustThresholdMph;
+  const peakWind = peakSpeed(outlook);
+  const isHigh = highWindTest(cfg);
   const offset = outlook.utcOffsetSeconds;
-  const windyNow = outlook.currentGust >= limit;
-  const onset = windyNow ? null : firstTimeAtOrAbove(outlook, limit);
+  const windyNow = isHigh(outlook.currentSpeed, outlook.currentGust);
+  const onset = windyNow ? null : firstTimeWhere(outlook, isHigh);
+  const highAhead = windyNow || onset !== null;
   const leadMs = cfg.leadMinutes * 60 * 1000;
   const due = windyNow || (onset !== null && onset.getTime() - now.getTime() <= leadMs);
   log.info?.(
-    `gusts now ${mph(outlook.currentGust)} mph, peak ${mph(peak)} mph in the next ${cfg.lookaheadHours} h ` +
-      `(limit ${mph(limit)})${onset ? `, reaching the limit at ${localClock(onset, offset)}` : ""}`,
+    `now wind ${mph(outlook.currentSpeed)} mph, gusts ${mph(outlook.currentGust)} mph; next ${cfg.lookaheadHours} h ` +
+      `peak wind ${mph(peakWind)} mph, gusts ${mph(peak)} mph (limits ${limitsText(cfg)})` +
+      `${onset ? `, reaching a limit at ${localClock(onset, offset)}` : ""}`,
   );
 
-  if (due || (state.hold && peak >= limit)) {
+  if (due || (state.hold && highAhead)) {
     // --- rule 1: windy now or within the lead time -> hold off -------------
     const entering = !state.hold;
     state.hold = true;
@@ -159,7 +162,9 @@ export async function runCheck(cfg, previous, now, { getOutlook, plug, notifier,
     if (entering) state.hold_since = iso(now);
     const { switched, failed } = await switchOff(cfg.devices, plug, dryRun, plugs, log);
     const start = onset && onset > now ? `from about ${localClock(onset, offset)}` : "right now";
-    const gusts = `Gusts reach ${mph(limit)} mph ${start}, peaking at ${mph(peak)} mph.`;
+    const gusts =
+      `High wind (${limitsText(cfg)}) ${start}, peaking at ${mph(peakWind)} mph wind ` +
+      `and ${mph(peak)} mph gusts.`;
 
     if (failed) {
       problems.push(`${failed} plug(s) could not be switched off`);
@@ -187,15 +192,18 @@ export async function runCheck(cfg, previous, now, { getOutlook, plug, notifier,
     }
   } else if (state.hold) {
     // --- rule 2: holding -> wait for calm, then tell the user ---------------
-    if (peak < cfg.resumeBelowMph) {
+    const calm =
+      peak < cfg.resumeBelowMph &&
+      (cfg.sustainedThresholdMph === null || peakWind < cfg.resumeBelowSustainedMph);
+    if (calm) {
       const parsed = Date.parse(state.calm_since ?? "");
       const calmStart = Number.isFinite(parsed) ? new Date(parsed) : now;
       state.calm_since = iso(calmStart);
       if (now.getTime() - calmStart.getTime() >= cfg.calmMinutes * 60 * 1000) {
         const delivered = await send(
           "Wind has passed",
-          `Gusts should stay under ${mph(cfg.resumeBelowMph)} mph for the next ${cfg.lookaheadHours} hours ` +
-            `(peak ${mph(peak)} mph). Turn the inflatables back on in the Govee app when you are ready.`,
+          `${resumeText(cfg)} for the next ${cfg.lookaheadHours} hours (peak wind ${mph(peakWind)} mph, ` +
+            `gusts ${mph(peak)} mph). Turn the inflatables back on in the Govee app when you are ready.`,
           { tag: "white_check_mark" },
         );
         if (delivered) {
@@ -217,6 +225,23 @@ export async function runCheck(cfg, previous, now, { getOutlook, plug, notifier,
   return { state, status: withPlugs(status, plugs), ok: problems.length === 0 };
 }
 
+/** True when a wind reading counts as high: gusts at the gust limit, or wind at the sustained limit. */
+export function highWindTest(cfg) {
+  return (speed, gust) =>
+    gust >= cfg.gustThresholdMph || (cfg.sustainedThresholdMph !== null && speed >= cfg.sustainedThresholdMph);
+}
+
+/** "25 mph wind or 35 mph gusts" (or just the gust limit when no sustained limit is set). */
+export function limitsText(cfg) {
+  const gusts = `${mph(cfg.gustThresholdMph)} mph gusts`;
+  return cfg.sustainedThresholdMph === null ? gusts : `${mph(cfg.sustainedThresholdMph)} mph wind or ${gusts}`;
+}
+
+function resumeText(cfg) {
+  const gusts = `Gusts should stay under ${mph(cfg.resumeBelowMph)} mph`;
+  return cfg.sustainedThresholdMph === null ? gusts : `${gusts} and wind under ${mph(cfg.resumeBelowSustainedMph)} mph`;
+}
+
 /** Plug power states by position only (never device IDs), plus an overall summary. */
 function withPlugs(status, plugs) {
   status.plugs = plugs;
@@ -231,13 +256,13 @@ export function buildStatus(cfg, state, now, outlook, problems, dryRun, upcoming
   let level;
   let headline;
   let detail;
-  const limit = mph(cfg.gustThresholdMph);
+  const limits = limitsText(cfg);
   if (outlook && upcoming) {
     const [onset, switchOffAt] = upcoming;
     level = "watch";
     headline = `High wind expected at ${localClock(onset, outlook.utcOffsetSeconds)}`;
     detail =
-      `Gusts reach ${limit} mph then. The inflatables will be turned off at about ` +
+      `Wind reaches a limit (${limits}) then. The inflatables will be turned off at about ` +
       `${localClock(switchOffAt, outlook.utcOffsetSeconds)}.`;
   } else if (!outlook) {
     level = "error";
@@ -248,11 +273,13 @@ export function buildStatus(cfg, state, now, outlook, problems, dryRun, upcoming
     headline = "Inflatables held off for wind";
     detail = state.calm_since
       ? "Wind is easing. You will be notified once it has stayed calm."
-      : `Peak gust ${mph(peakGust(outlook))} mph, limit ${limit} mph.`;
+      : `Peak wind ${mph(peakSpeed(outlook))} mph, gusts ${mph(peakGust(outlook))} mph. Limits: ${limits}.`;
   } else {
     level = "ok";
     headline = "Wind is fine";
-    detail = `Peak gust ${mph(peakGust(outlook))} mph in the next ${cfg.lookaheadHours} hours, limit ${limit} mph.`;
+    detail =
+      `Next ${cfg.lookaheadHours} hours: wind up to ${mph(peakSpeed(outlook))} mph, gusts up to ` +
+      `${mph(peakGust(outlook))} mph. Limits: ${limits}.`;
   }
   if (outlook && problems.length) {
     level = "error";
@@ -272,6 +299,8 @@ export function buildStatus(cfg, state, now, outlook, problems, dryRun, upcoming
     last_action_at: state.last_action_at,
     threshold_mph: cfg.gustThresholdMph,
     resume_below_mph: cfg.resumeBelowMph,
+    sustained_threshold_mph: cfg.sustainedThresholdMph,
+    resume_below_sustained_mph: cfg.resumeBelowSustainedMph,
     lookahead_hours: cfg.lookaheadHours,
     lead_minutes: cfg.leadMinutes,
     high_wind_at: upcoming ? iso(upcoming[0]) : null,
@@ -281,6 +310,7 @@ export function buildStatus(cfg, state, now, outlook, problems, dryRun, upcoming
     current_speed_mph: outlook ? one(outlook.currentSpeed) : null,
     current_gust_mph: outlook ? one(outlook.currentGust) : null,
     peak_gust_mph: outlook ? one(peakGust(outlook)) : null,
+    peak_speed_mph: outlook ? one(peakSpeed(outlook)) : null,
     peak_time: pt ? iso(pt) : null,
     forecast: outlook
       ? outlook.readings.map((r) => ({ time: iso(r.time), speed_mph: one(r.speed), gust_mph: one(r.gust) }))
