@@ -1,15 +1,17 @@
 // The Worker's logic: storage, the saved check, and the HTTP routes. src/index.js wires
 // these to Cloudflare (a module's named exports there must all be handlers).
 
-import { ConfigError, loadConfig } from "./config.js";
+import { ConfigError, loadConfig, loadPush } from "./config.js";
 import { GoveeClient } from "./govee.js";
 import { addCheck, normalizeHistory } from "./history.js";
 import { normalizeState, runCheck } from "./monitor.js";
-import { Notifier } from "./notify.js";
+import { AllNotifier, Notifier, PushNotifier } from "./notify.js";
+import { isValidSubscription, sendPush } from "./webpush.js";
 import { fetchOutlook } from "./weather.js";
 
 export const MANUAL_GAP_MS = 60 * 1000; // Refresh runs a check at most once a minute
 const LOCK_MS = 4 * 60 * 1000; // a check that has not finished by then is assumed dead
+const MAX_SUBSCRIPTIONS = 10; // phones with app alerts turned on; the oldest is dropped
 
 // ---- storage: one small key/value table in D1 ----------------------------------
 
@@ -82,20 +84,46 @@ export async function checkAndSave(env, { now = new Date(), manual = false, deps
       return { ran: true, status };
     }
 
-    const [savedState, savedHistory] = await Promise.all([getDoc(db, "state"), getDoc(db, "history")]);
+    const [savedState, savedHistory, savedSubs] = await Promise.all([
+      getDoc(db, "state"),
+      getDoc(db, "history"),
+      getDoc(db, "push_subs"),
+    ]);
+    const subs = Array.isArray(savedSubs) ? savedSubs : [];
+    const { notifier, push } = deps.notifier
+      ? { notifier: deps.notifier, push: null }
+      : buildNotifier(cfg, loadPush(env), subs, deps.fetchFn, log);
     const result = await runCheck(cfg, normalizeState(savedState), now, {
       getOutlook: deps.getOutlook ?? (() => fetchOutlook(cfg, now)),
       plug: deps.plug ?? new GoveeClient(cfg.goveeApiKey),
-      notifier: deps.notifier ?? new Notifier(cfg.ntfyServer, cfg.ntfyTopic, cfg.statusPageUrl),
+      notifier,
       log,
     });
     const history = addCheck(normalizeHistory(savedHistory), result.status, now);
-    await putDocs(db, { state: result.state, status: result.status, history });
+    const docs = { state: result.state, status: result.status, history };
+    if (push?.gone.size) {
+      // Re-read so a phone that subscribed during this check is not lost.
+      const latest = (await getDoc(db, "push_subs")) ?? [];
+      docs.push_subs = latest.filter((s) => !push.gone.has(s.endpoint));
+    }
+    await putDocs(db, docs);
     log.info?.(`${result.status.headline} - ${result.status.detail}`);
     return { ran: true, status: result.status };
   } finally {
     await releaseLock(db);
   }
+}
+
+/** ntfy (if a topic is set) plus the Home Screen app (if Web Push is set up). */
+function buildNotifier(cfg, pushCfg, subs, fetchFn, log) {
+  const channels = [];
+  if (cfg.ntfyTopic) channels.push(new Notifier(cfg.ntfyServer, cfg.ntfyTopic, cfg.statusPageUrl));
+  let push = null;
+  if (pushCfg && subs.length) {
+    push = new PushNotifier(subs, pushCfg, cfg.statusPageUrl || "/", { fetchFn });
+    channels.push(push);
+  }
+  return { notifier: new AllNotifier(channels, log), push };
 }
 
 function settingsProblem(message, now) {
@@ -146,6 +174,77 @@ export async function handleRequest(request, env, options = {}) {
     }
   }
 
+  if (path.startsWith("/api/push/")) return handlePush(request, env, path, options);
+
   if (env.ASSETS) return env.ASSETS.fetch(request);
+  return json({ error: "not found" }, 404);
+}
+
+// ---- Home Screen app alerts ----------------------------------------------------
+
+function sameText(a, b) {
+  // Constant-time comparison for the subscribe code.
+  const x = new TextEncoder().encode(String(a));
+  const y = new TextEncoder().encode(String(b));
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return diff === 0;
+}
+
+async function readJson(request) {
+  try {
+    const text = await request.text();
+    return text.length > 4096 ? null : JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function handlePush(request, env, path, options) {
+  const pushCfg = loadPush(env);
+  if (path === "/api/push/config") {
+    return json({ enabled: !!pushCfg, publicKey: pushCfg?.publicKey ?? null });
+  }
+  if (request.method !== "POST") return json({ error: "use POST" }, 405);
+  if (!pushCfg) return json({ error: "app alerts are not set up on the server" }, 503);
+  const body = await readJson(request);
+  if (!body) return json({ error: "bad request" }, 400);
+
+  await ensureTable(env.DB);
+  const subs = (await getDoc(env.DB, "push_subs")) ?? [];
+  const known = subs.find((s) => s.endpoint === body.subscription?.endpoint);
+
+  if (path === "/api/push/subscribe") {
+    if (!sameText(body.code ?? "", pushCfg.code)) return json({ error: "wrong code" }, 403);
+    const sub = body.subscription;
+    if (!isValidSubscription(sub)) return json({ error: "bad subscription" }, 400);
+    const entry = {
+      endpoint: sub.endpoint,
+      keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },
+      added: new Date().toISOString(),
+    };
+    const next = subs.filter((s) => s.endpoint !== sub.endpoint).concat(entry).slice(-MAX_SUBSCRIPTIONS);
+    await putDocs(env.DB, { push_subs: next });
+    return json({ ok: true });
+  }
+
+  // The rest act only on a subscription the server already has: knowing its
+  // endpoint (a long secret URL only that phone holds) is the permission.
+  if (!known) return json({ error: "this device is not subscribed" }, 404);
+
+  if (path === "/api/push/unsubscribe") {
+    await putDocs(env.DB, { push_subs: subs.filter((s) => s !== known) });
+    return json({ ok: true });
+  }
+  if (path === "/api/push/test") {
+    const result = await sendPush(
+      known,
+      { title: "Wind Watch test", body: "App alerts are working on this phone.", url: "/", tag: "test" },
+      pushCfg,
+      { fetchFn: options.fetchFn ?? fetch },
+    );
+    if (result === "gone") await putDocs(env.DB, { push_subs: subs.filter((s) => s !== known) });
+    return json({ ok: result === "sent", result }, result === "sent" ? 200 : 502);
+  }
   return json({ error: "not found" }, 404);
 }

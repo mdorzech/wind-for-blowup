@@ -2,12 +2,14 @@
 //   node scripts/cli.mjs devices      list Govee devices and the GOVEE_DEVICES value for each
 //   node scripts/cli.mjs test-notify  send a test notification to your phone
 //   node scripts/cli.mjs dry-run      run one check that switches nothing and notifies nobody
-import { existsSync } from "node:fs";
+//   node scripts/cli.mjs push-keys    add Home Screen app alert keys and an alert code to .env
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { ConfigError, goveeApiKey, loadConfig } from "../src/config.js";
 import { GoveeClient, GoveeError } from "../src/govee.js";
 import { newState, runCheck } from "../src/monitor.js";
 import { Notifier, NotifyError } from "../src/notify.js";
 import { fetchOutlook } from "../src/weather.js";
+import { b64urlEncode, generateVapidKeys } from "../src/webpush.js";
 
 const TOML_DEFAULTS = {
   SUSTAINED_THRESHOLD_MPH: "25",
@@ -36,8 +38,37 @@ async function main(command) {
     return 0;
   }
 
+  if (command === "push-keys") {
+    const existing = existsSync(".env") ? readFileSync(".env", "utf8") : "";
+    if (/^VAPID_PRIVATE_KEY=./m.test(existing)) {
+      console.log("App alert keys are already in .env. Nothing changed.");
+      return 0;
+    }
+    const keys = await generateVapidKeys();
+    const code = b64urlEncode(crypto.getRandomValues(new Uint8Array(9)));
+    appendFileSync(
+      ".env",
+      (existing && !existing.endsWith("\n") ? "\n" : "") +
+        [
+          "",
+          "# Home Screen app alerts (from npm run push-keys). PUSH_CODE is typed once on each phone.",
+          `VAPID_PUBLIC_KEY=${keys.publicKey}`,
+          `VAPID_PRIVATE_KEY=${keys.privateKey}`,
+          `PUSH_CODE=${code}`,
+          "",
+        ].join("\n"),
+    );
+    console.log("Added app alert keys and PUSH_CODE to .env.");
+    console.log("Next: npx.cmd wrangler secret bulk .env");
+    return 0;
+  }
+
   if (command === "test-notify") {
     const cfg = loadConfig(env);
+    if (!cfg.ntfyTopic) {
+      console.log("NTFY_TOPIC is empty, so ntfy is off. Use Send a test alert in the app instead.");
+      return 1;
+    }
     await new Notifier(cfg.ntfyServer, cfg.ntfyTopic, cfg.statusPageUrl).send("Wind monitor test", "Notifications are working.");
     console.log("Test notification sent. Check your phone.");
     return 0;
@@ -64,7 +95,7 @@ async function main(command) {
     return status.problems.length ? 1 : 0;
   }
 
-  console.log("Usage: node scripts/cli.mjs <devices|test-notify|dry-run>");
+  console.log("Usage: node scripts/cli.mjs <devices|test-notify|dry-run|push-keys>");
   return 2;
 }
 

@@ -10,6 +10,10 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="Wind Watch">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#2f6fb2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -186,6 +190,28 @@
   .rules dt { font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
   .rules dd { margin: 0; font-weight: 500; }
   footer { font-size: 0.8rem; color: var(--muted); }
+
+  /* Phone alerts */
+  .alerts p { margin: 0 0 10px; }
+  .alerts ol { margin: 0 0 4px; padding-left: 1.3em; }
+  .alerts li { margin: 2px 0; }
+  .alert-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .alert-form input { font: 500 1rem var(--font-body); color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                      border-radius: 6px; padding: 7px 10px; min-width: 0; flex: 1 1 12em; max-width: 20em; }
+  .alert-form input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { color: #fff; filter: brightness(1.08); }
+  .alert-state { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+  .alert-state .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); }
+  #alert-msg { margin: 10px 0 0; min-height: 1.5em; }
+  #alert-msg.bad { color: var(--error); }
+
+  /* Installed on the Home Screen: no browser chrome, so keep content clear of the notch. */
+  @media (display-mode: standalone) {
+    .wrap { padding-top: 12px; }
+    body { -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    input, .log, .detail { -webkit-user-select: text; user-select: text; }
+  }
   @media (prefers-reduced-motion: no-preference) { .banner, .panel { transition: background-color 0.3s; } }
 </style>
 </head>
@@ -257,6 +283,39 @@
   <section class="panel" aria-labelledby="log-title">
     <div class="panel-head"><h2 id="log-title">Activity</h2></div>
     <ul id="log" class="log"><li class="muted">No actions yet.</li></ul>
+  </section>
+
+  <section class="panel alerts" aria-labelledby="alerts-title">
+    <div class="panel-head"><h2 id="alerts-title">Phone alerts</h2></div>
+    <div id="alerts-install" hidden>
+      <p>To get alerts from this app on your iPhone:</p>
+      <ol>
+        <li>In Safari, tap the <strong>Share</strong> button.</li>
+        <li>Tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
+        <li>Open <strong>Wind Watch</strong> from your Home Screen and come back here.</li>
+      </ol>
+    </div>
+    <p id="alerts-unsupported" class="muted" hidden>This browser cannot receive app alerts. Alerts still go to the ntfy app.</p>
+    <p id="alerts-off-server" class="muted" hidden>App alerts are not set up on the server yet.</p>
+    <p id="alerts-blocked" hidden>Notifications are blocked for Wind Watch. Turn them on in
+      <strong>Settings &rsaquo; Notifications &rsaquo; Wind Watch</strong>, then reopen the app.</p>
+    <div id="alerts-setup" hidden>
+      <p>Get a notification on this phone when the inflatables are turned off and when the wind has passed.
+        Enter the alert code once to turn it on.</p>
+      <form class="alert-form" id="alert-form">
+        <input id="alert-code" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"
+               placeholder="Alert code" aria-label="Alert code" required>
+        <button type="submit" class="btn primary" id="alert-on">Turn on alerts</button>
+      </form>
+    </div>
+    <div id="alerts-on" hidden>
+      <p class="alert-state"><span class="dot" aria-hidden="true"></span>Alerts are on for this phone.</p>
+      <div class="alert-form">
+        <button type="button" class="btn" id="alert-test">Send a test alert</button>
+        <button type="button" class="btn" id="alert-off">Turn off</button>
+      </div>
+    </div>
+    <p id="alert-msg" class="small muted" role="status" aria-live="polite"></p>
   </section>
 
   <section class="panel" aria-labelledby="rules-title">
@@ -679,6 +738,127 @@
   window.addEventListener("resize", function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderAll, 150); });
   load();
   setInterval(load, REFRESH_MS);
+
+  // ---- Phone alerts (Web Push to the Home Screen app) ----------------------------
+  var alertViews = ["alerts-install", "alerts-unsupported", "alerts-off-server", "alerts-blocked", "alerts-setup", "alerts-on"];
+  var pushKey = null;
+  function showAlerts(id, msg, bad) {
+    alertViews.forEach(function (v) { $(v).hidden = v !== id; });
+    $("alert-msg").textContent = msg || "";
+    $("alert-msg").className = "small " + (bad ? "bad" : "muted");
+  }
+  function alertNote(msg, bad) {
+    $("alert-msg").textContent = msg;
+    $("alert-msg").className = "small " + (bad ? "bad" : "muted");
+  }
+  function keyBytes(b64) {
+    var s = b64.replace(/-/g, "+").replace(/_/g, "/");
+    var bin = atob(s + "===".slice((s.length + 3) % 4));
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) { out[i] = bin.charCodeAt(i); }
+    return out;
+  }
+  function postJson(path, body) {
+    return fetch(path, { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) { return { code: r.status, body: b }; }); });
+  }
+  var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  var standalone = window.navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  var pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+  function currentSub() {
+    return navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); });
+  }
+
+  function setupAlerts() {
+    if (!pushSupported) {
+      showAlerts(isIOS && !standalone ? "alerts-install" : "alerts-unsupported");
+      return;
+    }
+    fetch("api/push/config", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (cfg) {
+        if (!cfg.enabled) { showAlerts("alerts-off-server"); return; }
+        pushKey = cfg.publicKey;
+        if (Notification.permission === "denied") { showAlerts("alerts-blocked"); return; }
+        return currentSub().then(function (sub) { showAlerts(sub ? "alerts-on" : "alerts-setup"); });
+      })
+      .catch(function () { showAlerts("alerts-unsupported", "Could not reach the server. Try again later.", true); });
+  }
+
+  $("alert-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var code = $("alert-code").value.trim();
+    if (!code) { return; }
+    $("alert-on").disabled = true;
+    alertNote("Turning on alerts…");
+    // Must start from the tap: iOS only shows the permission prompt for a user action.
+    Notification.requestPermission()
+      .then(function (perm) {
+        if (perm !== "granted") { throw new Error(perm === "denied" ? "blocked" : "dismissed"); }
+        return navigator.serviceWorker.ready;
+      })
+      .then(function (reg) {
+        return reg.pushManager.getSubscription().then(function (old) {
+          return old || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(pushKey) });
+        });
+      })
+      .then(function (sub) {
+        return postJson("api/push/subscribe", { code: code, subscription: sub.toJSON() }).then(function (res) {
+          if (res.code === 403) {
+            return sub.unsubscribe().then(function () { throw new Error("code"); });
+          }
+          if (res.code !== 200) { throw new Error("server"); }
+        });
+      })
+      .then(function () {
+        $("alert-code").value = "";
+        showAlerts("alerts-on", "Alerts are on. Tap Send a test alert to check.");
+      })
+      .catch(function (err) {
+        var m = err && err.message;
+        if (m === "blocked") { showAlerts("alerts-blocked"); return; }
+        alertNote(m === "code" ? "That alert code is not right." :
+          m === "dismissed" ? "Allow notifications when asked to turn alerts on." :
+          "Could not turn on alerts. Try again.", true);
+      })
+      .then(function () { $("alert-on").disabled = false; });
+  });
+
+  $("alert-test").addEventListener("click", function () {
+    $("alert-test").disabled = true;
+    alertNote("Sending…");
+    currentSub()
+      .then(function (sub) {
+        if (!sub) { throw new Error("none"); }
+        return postJson("api/push/test", { subscription: sub.toJSON() });
+      })
+      .then(function (res) {
+        if (res.code === 404) { showAlerts("alerts-setup", "This phone was signed out of alerts. Turn them on again.", true); return; }
+        alertNote(res.code === 200 ? "Test sent. It should arrive in a few seconds." : "The test could not be delivered. Try again.", res.code !== 200);
+      })
+      .catch(function () { setupAlerts(); })
+      .then(function () { $("alert-test").disabled = false; });
+  });
+
+  $("alert-off").addEventListener("click", function () {
+    $("alert-off").disabled = true;
+    currentSub()
+      .then(function (sub) {
+        if (!sub) { return; }
+        return postJson("api/push/unsubscribe", { subscription: sub.toJSON() })
+          .catch(function () {})
+          .then(function () { return sub.unsubscribe(); });
+      })
+      .then(function () { showAlerts("alerts-setup", "Alerts are off for this phone."); })
+      .catch(function () { alertNote("Could not turn off alerts. Try again.", true); })
+      .then(function () { $("alert-off").disabled = false; });
+  });
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(function () { /* page still works without it */ });
+  }
+  setupAlerts();
 })();
 </script>
 </body>

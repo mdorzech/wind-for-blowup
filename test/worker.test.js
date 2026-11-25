@@ -103,10 +103,10 @@ describe("worker", () => {
 
   it("shows a settings problem on the dashboard instead of failing silently", async () => {
     const { env, deps } = setup();
-    delete env.NTFY_TOPIC;
+    delete env.GOVEE_DEVICES;
     const result = await checkAndSave(env, { now: NOW, deps, log: quiet });
     assert.equal(result.status.level, "error");
-    assert.match(result.status.detail, /NTFY_TOPIC/);
+    assert.match(result.status.detail, /GOVEE_DEVICES/);
     assert.equal(env.DB.doc("status").headline, "Monitor settings problem");
   });
 

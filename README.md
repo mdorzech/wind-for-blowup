@@ -17,14 +17,16 @@ runs a new check on the spot (at most once a minute).
 
 - A free [Cloudflare](https://dash.cloudflare.com/sign-up) account.
 - A Govee API key: Govee Home app > Profile > Settings > **Apply for API Key**.
-- The [ntfy](https://ntfy.sh) app on your phone (free, no account).
+- An iPhone (iOS 16.4 or newer) or Android phone for alerts. Optionally the
+  [ntfy](https://ntfy.sh) app as a second alert channel.
 - [Node.js](https://nodejs.org) 20.12 or newer on your PC, for setup and deploying.
 
 ## Setup
 
 1. **Install the tools:** `npm install`
 2. **Fill in `.env`** (copy `.env.example`): `LATITUDE`, `LONGITUDE`, `GOVEE_API_KEY`,
-   and a long, hard-to-guess `NTFY_TOPIC` that you also subscribe to in the ntfy app.
+   and optionally a long, hard-to-guess `NTFY_TOPIC` that you subscribe to in the ntfy app.
+   Then run `npm run push-keys` to add the app alert keys and an alert code.
    `.env` is git-ignored; never commit it.
 3. **Find your plug:** `npm run devices`, then copy the `SKU|DEVICE_ID` value of the
    inflatable plug into `GOVEE_DEVICES` (several plugs: separate with commas).
@@ -41,6 +43,17 @@ runs a new check on the spot (at most once a minute).
    `STATUS_PAGE_URL` in `wrangler.toml` and deploy again.
 
 The first scheduled check runs within 5 minutes; tap **Refresh** to run one now.
+
+## Install on your iPhone
+
+1. Open the dashboard address in **Safari**, tap **Share**, then **Add to Home Screen**.
+2. Open **Wind Watch** from the Home Screen. Under **Phone alerts**, enter the
+   `PUSH_CODE` from `.env` and tap **Turn on alerts**, then **Allow**.
+3. Tap **Send a test alert**.
+
+Alerts then arrive like any app's notifications, and tapping one opens the app. Do
+this on each phone that should get alerts (up to 10). The code stops strangers who
+find the address from signing up for your alerts.
 
 ## Settings (`wrangler.toml`, `[vars]`)
 
@@ -67,6 +80,8 @@ Change a value, then `npm run deploy`. The check frequency is `crons` in the sam
 | Could not turn inflatables off (urgent) | The plug did not respond; turn it off yourself |
 | Wind monitor cannot get the forecast (urgent) | You are unprotected until it recovers |
 
+Alerts go to every phone with app alerts on, and to ntfy if `NTFY_TOPIC` is set.
+
 Failure alerts are sent once per outage, not every 5 minutes.
 
 ## Commands
@@ -74,7 +89,8 @@ Failure alerts are sent once per outage, not every 5 minutes.
 ```
 npm test              run the tests
 npm run devices       list Govee devices
-npm run test-notify   send a test notification
+npm run test-notify   send a test notification through ntfy
+npm run push-keys     add app alert keys and an alert code to .env
 npm run dry-run       one check that switches nothing and notifies nobody
 npm run deploy        publish to Cloudflare
 npx wrangler tail     watch the live Worker's logs
@@ -85,10 +101,11 @@ No runtime packages: the Worker uses only the platform's built-in APIs.
 ## How it is built
 
 - `src/monitor.js`: the rules (when to switch off, when to send the all-clear).
-- `src/weather.js`, `src/govee.js`, `src/notify.js`: Open-Meteo, Govee and ntfy.
+- `src/weather.js`, `src/govee.js`, `src/notify.js`: Open-Meteo, Govee, ntfy and app alerts.
+- `src/webpush.js`: Web Push (encryption and VAPID signing) with built-in WebCrypto.
 - `src/app.js`: saved state in Cloudflare D1, the dashboard's data and the Refresh check.
 - `src/index.js`: Cloudflare entry point (5-minute cron and web requests).
-- `public/index.html`: the dashboard.
+- `public/index.html`: the dashboard; `public/sw.js` shows app alerts and keeps it working offline.
 
 ## Known limitations
 

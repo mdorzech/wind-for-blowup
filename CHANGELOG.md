@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.0 - 2026-11-24
+
+- Installs on the iPhone Home Screen as an app, with its own push alerts (Web Push); ntfy is now optional.
+- Phone alerts panel: turn alerts on with a one-time code, send a test, turn off.
+- Works offline with the last loaded check.
+- High wind is sustained wind of 25 mph or gusts of 35 mph.
+
 ## 2.0.0 - 2026-11-22
 
 - Runs on Cloudflare Workers instead of GitHub Actions: checks every 5 minutes on time.

@@ -82,8 +82,9 @@ export function loadConfig(env) {
   if (statusPageUrl && !statusPageUrl.startsWith("https://")) {
     throw new ConfigError("STATUS_PAGE_URL must start with https:// or be empty");
   }
+  // ntfy is optional now that the Home Screen app can receive alerts itself.
   const topic = text(env, "NTFY_TOPIC");
-  if (!TOPIC_RE.test(topic)) throw new ConfigError("NTFY_TOPIC must be 1-64 letters, digits, '-' or '_'");
+  if (topic && !TOPIC_RE.test(topic)) throw new ConfigError("NTFY_TOPIC must be 1-64 letters, digits, '-' or '_'");
 
   return {
     latitude,
@@ -98,7 +99,20 @@ export function loadConfig(env) {
     goveeApiKey: goveeApiKey(env),
     devices: parseDevices(env.GOVEE_DEVICES),
     ntfyServer,
-    ntfyTopic: topic,
+    ntfyTopic: topic || null,
     statusPageUrl,
   };
+}
+
+/**
+ * Home Screen app alerts (Web Push). Returns null when not set up: VAPID_PUBLIC_KEY,
+ * VAPID_PRIVATE_KEY and PUSH_CODE are secrets; the subject is the dashboard address.
+ */
+export function loadPush(env) {
+  const publicKey = text(env, "VAPID_PUBLIC_KEY");
+  const privateKey = text(env, "VAPID_PRIVATE_KEY");
+  const code = text(env, "PUSH_CODE");
+  const subject = text(env, "VAPID_SUBJECT") || text(env, "STATUS_PAGE_URL");
+  if (!publicKey || !privateKey || !code || !/^(https:|mailto:)/.test(subject)) return null;
+  return { publicKey, privateKey, subject, code };
 }
