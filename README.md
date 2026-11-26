@@ -55,6 +55,16 @@ Alerts then arrive like any app's notifications, and tapping one opens the app. 
 this on each phone that should get alerts (up to 10). The code stops strangers who
 find the address from signing up for your alerts.
 
+## Lock Screen widget
+
+Install the free **Scriptable** app, then on your iPhone open
+[scripts/lockscreen-widget.js](scripts/lockscreen-widget.js) here on GitHub, tap
+**Raw**, select all and copy. In Scriptable tap **+**, paste, name it **Wind Watch**.
+Then long-press the Lock Screen, **Customize** > **Lock Screen** > tap the widget
+area > **Scriptable**, add a widget, tap it and choose the **Wind Watch** script.
+It shows gusts, wind, status and whether the plug is on, refreshing about every
+5-15 minutes (iOS decides exactly when).
+
 ## Settings (`wrangler.toml`, `[vars]`)
 
 | Setting | Default | Meaning |
